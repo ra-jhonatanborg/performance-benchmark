@@ -47,10 +47,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "yarn"
+
+      - name: Habilitar Corepack (Yarn 4)
+        run: corepack enable && corepack prepare yarn@4.12.0 --activate
 
       - name: Instalar dependências
-        run: yarn install --frozen-lockfile
+        run: yarn install --immutable
 
       - name: Instalar Chromium
         run: yarn playwright install chromium --with-deps
