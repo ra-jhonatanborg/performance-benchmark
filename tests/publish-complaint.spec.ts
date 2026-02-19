@@ -179,12 +179,31 @@ const PHONE_SEL = [
 ].join(', ');
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Timeouts — valores maiores no CI para compensar ambiente headless mais lento
+// ─────────────────────────────────────────────────────────────────────────────
+
+const IS_CI = !!process.env.CI;
+
+const T = {
+  pageLoad:   IS_CI ? 120_000 : 60_000,  // page.goto
+  element:    IS_CI ?  60_000 : 20_000,  // waitFor elemento genérico
+  navigation: IS_CI ?  60_000 : 30_000,  // waitForURL
+  formDetect: IS_CI ?  40_000 : 15_000,  // Promise.race ra-forms vs textarea
+  formField:  IS_CI ?  35_000 : 15_000,  // botões Continuar / Próximo passo
+  textarea:   IS_CI ?  50_000 : 25_000,  // waitFor textarea
+  phone:      IS_CI ?  30_000 : 12_000,  // campo de telefone
+  simCheck:   IS_CI ?  15_000 :  5_000,  // radio Sim (pequeno)
+  publish:    IS_CI ?  90_000 : 60_000,  // aguarda /sucesso
+  debounce:   IS_CI ?   4_000 :  2_500,  // debounce da busca
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Helpers Playwright (mesma lógica do script publish-complaint.js)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Preenche textarea/input compatível com React via nativeValueSetter */
 async function fillReactInput(page: Page, selector: string, value: string) {
-  await page.waitForSelector(selector, { state: 'visible', timeout: 20_000 });
+  await page.waitForSelector(selector, { state: 'visible', timeout: T.element });
   await page.evaluate(
     ({ sel, val }) => {
       const el = document.querySelector(sel) as HTMLTextAreaElement | HTMLInputElement | null;
@@ -210,7 +229,7 @@ async function closeVoiceModalIfPresent(page: Page) {
         '#close-modal-voice-complaint, button:has-text("Vou seguir com o teclado mesmo"), button:has-text("teclado mesmo")',
       )
       .first();
-    const visible = await btn.isVisible({ timeout: 4_000 }).catch(() => false);
+    const visible = await btn.isVisible({ timeout: T.simCheck }).catch(() => false);
     if (visible) {
       console.log('  Modal de voz detectado — fechando...');
       await btn.click();
@@ -283,7 +302,9 @@ test(
       VERSION === 'v2' ? `${env.url}/reclamar/?ab-force=B` : `${env.url}/reclamar/`;
 
     console.log(`\n  [1/7] Navegando para: ${searchUrl}`);
-    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: T.pageLoad });
+    // Em CI aguarda a hidratação do JS antes de interagir com os elementos
+    await page.waitForLoadState('load', { timeout: 30_000 }).catch(() => {});
     bench.mark('1. Página inicial carregada');
 
     // ───────────────────────────────────────────────────────────────────────
@@ -293,9 +314,9 @@ test(
     const searchInput = page
       .locator('input[type="text"], input[type="search"], input:not([type])')
       .first();
-    await searchInput.waitFor({ state: 'visible', timeout: 20_000 });
+    await searchInput.waitFor({ state: 'visible', timeout: T.element });
     await searchInput.fill(COMPANY);
-    await page.waitForTimeout(2500);
+    await page.waitForTimeout(T.debounce);
     bench.mark('2. Busca de empresa enviada');
 
     // ───────────────────────────────────────────────────────────────────────
@@ -309,14 +330,14 @@ test(
       )
       .first();
 
-    const exactVisible = await companyBtn.isVisible({ timeout: 15_000 }).catch(() => false);
+    const exactVisible = await companyBtn.isVisible({ timeout: T.element }).catch(() => false);
     if (exactVisible) {
       await companyBtn.click();
     } else {
       const byWord = page
         .locator(`button:has-text("${firstWord}"), [role="option"]:has-text("${firstWord}")`)
         .first();
-      const wordVisible = await byWord.isVisible({ timeout: 8_000 }).catch(() => false);
+      const wordVisible = await byWord.isVisible({ timeout: T.formField }).catch(() => false);
       if (wordVisible) {
         await byWord.click();
       } else {
@@ -324,7 +345,7 @@ test(
         const anyResult = page
           .locator('[class*="result"] button, [class*="search"] button, ul button, ol button')
           .first();
-        await anyResult.click({ timeout: 15_000 });
+        await anyResult.click({ timeout: T.element });
       }
     }
     bench.mark('3. Empresa selecionada');
@@ -334,7 +355,7 @@ test(
     // ───────────────────────────────────────────────────────────────────────
     console.log('  [4/7] Aguardando página de retenção...');
     await page.waitForURL(/\/reclamar\/(v2\/)?[A-Za-z0-9_-]+\/$/, {
-      timeout: 30_000,
+      timeout: T.navigation,
       waitUntil: 'domcontentloaded',
     });
     console.log(`  URL: ${page.url()}`);
@@ -342,7 +363,7 @@ test(
     const reclamarLink = page
       .locator('a:has-text("Reclamar"), button:has-text("Reclamar"), [href*="minha-historia"]')
       .first();
-    await reclamarLink.waitFor({ state: 'visible', timeout: 20_000 });
+    await reclamarLink.waitFor({ state: 'visible', timeout: T.element });
     await reclamarLink.click();
     bench.mark('4. Página de retenção → Reclamar clicado');
 
@@ -351,17 +372,17 @@ test(
     // ───────────────────────────────────────────────────────────────────────
     console.log('  [5/7] Aguardando formulário...');
     await page.waitForURL(/minha-historia/, {
-      timeout: 30_000,
+      timeout: T.navigation,
       waitUntil: 'domcontentloaded',
     });
 
     const screenType = await Promise.race([
       page
-        .waitForSelector(RADIO_SEL,    { state: 'visible', timeout: 15_000 })
+        .waitForSelector(RADIO_SEL,    { state: 'visible', timeout: T.formDetect })
         .then(() => 'ra-forms')
         .catch(() => null),
       page
-        .waitForSelector(TEXTAREA_SEL, { state: 'visible', timeout: 15_000 })
+        .waitForSelector(TEXTAREA_SEL, { state: 'visible', timeout: T.formDetect })
         .then(() => 'textarea')
         .catch(() => null),
     ]);
@@ -375,7 +396,7 @@ test(
       const simLabel = page
         .locator('label:has-text("Sim"), [class*="radio"]:has-text("Sim")')
         .first();
-      const simVisible = await simRadio.isVisible({ timeout: 5_000 }).catch(() => false);
+      const simVisible = await simRadio.isVisible({ timeout: T.simCheck }).catch(() => false);
       if (simVisible) {
         await simRadio.click();
       } else {
@@ -386,10 +407,10 @@ test(
       await fillStep1ExtraFields(page);
 
       const continuar1 = page.locator('button:has-text("Continuar")').first();
-      await continuar1.waitFor({ state: 'visible', timeout: 15_000 });
+      await continuar1.waitFor({ state: 'visible', timeout: T.formField });
       await continuar1.click();
 
-      await page.waitForSelector(TEXTAREA_SEL, { state: 'visible', timeout: 25_000 });
+      await page.waitForSelector(TEXTAREA_SEL, { state: 'visible', timeout: T.textarea });
       console.log('  [5/7] Avançou para Passo 2 (textarea).');
     } else if (screenType === 'textarea') {
       console.log('  [5/7] ra-forms não presente — textarea já visível.');
@@ -406,7 +427,7 @@ test(
     console.log('  [6/7] Preenchendo texto da reclamação...');
 
     await closeVoiceModalIfPresent(page);
-    await page.waitForSelector(TEXTAREA_SEL, { state: 'visible', timeout: 25_000 });
+    await page.waitForSelector(TEXTAREA_SEL, { state: 'visible', timeout: T.textarea });
 
     await fillReactInput(page, 'textarea[name="myHistory.description"]', COMPLAINT_TEXT).catch(
       async () => {
@@ -432,7 +453,7 @@ test(
       // V1: telefone está na mesma tela → preenche → Próximo passo
       console.log('  Aguardando campo de telefone...');
       const phoneInput  = page.locator(PHONE_SEL).first();
-      const phoneVisible = await phoneInput.isVisible({ timeout: 12_000 }).catch(() => false);
+      const phoneVisible = await phoneInput.isVisible({ timeout: T.phone }).catch(() => false);
 
       if (phoneVisible) {
         const current = await phoneInput.inputValue().catch(() => '');
@@ -453,13 +474,13 @@ test(
           '#complaint-phased-button-next, button:has-text("Próximo passo"), button:has-text("Proximo passo")',
         )
         .first();
-      await nextBtn.waitFor({ state: 'visible', timeout: 15_000 });
+      await nextBtn.waitFor({ state: 'visible', timeout: T.formField });
       console.log('  Avançando para tela de publicação (V1)...');
       await nextBtn.click();
     } else {
       // V2: avança com "Continuar" — telefone fica no Passo 3
       const continuar2 = page.locator('button:has-text("Continuar")').first();
-      await continuar2.waitFor({ state: 'visible', timeout: 15_000 });
+      await continuar2.waitFor({ state: 'visible', timeout: T.formField });
       await continuar2.click();
     }
     bench.mark('6. Reclamação preenchida → avançado');
@@ -472,7 +493,7 @@ test(
 
     if (VERSION === 'v2') {
       const phoneInputV2 = page.locator(PHONE_SEL).first();
-      const phoneVisible = await phoneInputV2.isVisible({ timeout: 8_000 }).catch(() => false);
+      const phoneVisible = await phoneInputV2.isVisible({ timeout: T.formField }).catch(() => false);
       if (phoneVisible) {
         const current = await phoneInputV2.inputValue().catch(() => '');
         if (!current || current.replace(/\D/g, '').length < 8) {
@@ -494,11 +515,11 @@ test(
 
     const confirmScreen = await Promise.race([
       page
-        .waitForSelector(PUBLISH_SEL, { state: 'visible', timeout: 20_000 })
+        .waitForSelector(PUBLISH_SEL, { state: 'visible', timeout: T.element })
         .then(() => 'publish')
         .catch(() => null),
       page
-        .waitForSelector(BLOCKER_SEL, { state: 'visible', timeout: 20_000 })
+        .waitForSelector(BLOCKER_SEL, { state: 'visible', timeout: T.element })
         .then(() => 'blocked')
         .catch(() => null),
     ]);
@@ -546,16 +567,16 @@ test(
 
     const postPublishScreen = await Promise.race([
       page
-        .waitForURL(/sucesso/, { timeout: 60_000, waitUntil: 'domcontentloaded' })
+        .waitForURL(/sucesso/, { timeout: T.publish, waitUntil: 'domcontentloaded' })
         .then(() => 'success'),
       page
         .waitForSelector(
           ':text("Sua reclamação foi publicada"), :text("publicada com sucesso")',
-          { timeout: 60_000 },
+          { timeout: T.publish },
         )
         .then(() => 'success'),
       page
-        .waitForSelector(BLOCKER_SEL, { state: 'visible', timeout: 60_000 })
+        .waitForSelector(BLOCKER_SEL, { state: 'visible', timeout: T.publish })
         .then(() => 'blocked'),
     ]).catch(() => 'timeout' as const);
 
