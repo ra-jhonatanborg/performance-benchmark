@@ -1,0 +1,103 @@
+name: Publicar Reclamação — Reclame AQUI
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Ambiente"
+        required: true
+        default: "tst"
+        type: choice
+        options:
+          - tst
+          - evo
+          - prod
+
+      version:
+        description: "Versão do fluxo"
+        required: true
+        default: "v1"
+        type: choice
+        options:
+          - v1
+          - v2
+
+      company:
+        description: "Nome da empresa"
+        required: true
+        default: "Comercial Praia"
+        type: string
+
+      complaint_text:
+        description: "Texto da reclamação (vazio = usar padrão)"
+        required: false
+        type: string
+
+jobs:
+  publish:
+    name: "${{ inputs.environment }} / ${{ inputs.version }} — ${{ inputs.company }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "yarn"
+
+      - name: Instalar dependências
+        run: yarn install --frozen-lockfile
+
+      - name: Instalar Chromium
+        run: yarn playwright install chromium --with-deps
+
+      - name: Publicar reclamação
+        env:
+          RA_ENV: ${{ inputs.environment }}
+          RA_VERSION: ${{ inputs.version }}
+          RA_COMPANY: ${{ inputs.company }}
+          RA_TEXT: ${{ inputs.complaint_text }}
+          RA_TK: ${{ secrets.RA_TK }}
+          RA_RTK: ${{ secrets.RA_RTK }}
+          RA_ITK: ${{ secrets.RA_ITK }}
+          CI: "true"
+        run: yarn playwright test publish-complaint --project=publish-complaint
+
+      - name: Upload — Playwright HTML Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "report-${{ inputs.environment }}-${{ inputs.version }}-${{ inputs.company }}"
+          path: playwright-report/
+          retention-days: 30
+
+      - name: Upload — Benchmark JSON
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "benchmark-${{ inputs.environment }}-${{ inputs.version }}"
+          path: benchmark-results.json
+          retention-days: 30
+
+      - name: Resumo no GitHub
+        if: always()
+        run: |
+          echo "## Resultado da Publicação" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Campo      | Valor |" >> $GITHUB_STEP_SUMMARY
+          echo "|------------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Ambiente   | \`${{ inputs.environment }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Versão     | \`${{ inputs.version }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Empresa    | ${{ inputs.company }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f benchmark-results.json ]; then
+            LAST=$(node -e "const d=require('./benchmark-results.json'); const l=d[d.length-1]; console.log(JSON.stringify(l))")
+            TOTAL=$(echo $LAST | node -e "process.stdin.resume();let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.parse(d).totalFormatted))")
+            STATUS=$(echo $LAST | node -e "process.stdin.resume();let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.parse(d).status||'published'))")
+            echo "| Tempo total | \`$TOTAL\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| Status     | \`$STATUS\` |" >> $GITHUB_STEP_SUMMARY
+          fi
