@@ -33,8 +33,22 @@ on:
         required: false
         type: string
 
+# Permissões necessárias para publicar no GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Garante que apenas um deploy de Pages ocorra por vez
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
 jobs:
-  publish:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Job 1: Executar o teste e gerar o relatório
+  # ─────────────────────────────────────────────────────────────────────────────
+  run-test:
     name: "${{ inputs.environment }} / ${{ inputs.version }} — ${{ inputs.company }}"
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -58,6 +72,7 @@ jobs:
         run: yarn playwright install chromium --with-deps
 
       - name: Publicar reclamação
+        continue-on-error: true
         env:
           RA_ENV: ${{ inputs.environment }}
           RA_VERSION: ${{ inputs.version }}
@@ -69,19 +84,30 @@ jobs:
           CI: "true"
         run: yarn playwright test publish-complaint --project=publish-complaint
 
-      - name: Upload — Playwright HTML Report
-        uses: actions/upload-artifact@v4
+      # Injeta informações do run no topo do relatório HTML
+      - name: Adicionar cabeçalho ao relatório
+        if: always()
+        run: |
+          INFO="<div style='background:#1a1a2e;color:#fff;padding:12px 20px;font-family:monospace;font-size:13px;display:flex;gap:24px;align-items:center'>\
+          <span>🚀 <b>Run #${{ github.run_number }}</b></span>\
+          <span>📦 Ambiente: <b>${{ inputs.environment }}</b></span>\
+          <span>⚙️ Versão: <b>${{ inputs.version }}</b></span>\
+          <span>🏢 Empresa: <b>${{ inputs.company }}</b></span>\
+          <span>🕐 $(date -u '+%d/%m/%Y %H:%M') UTC</span>\
+          </div>"
+          sed -i "s|<body>|<body>$INFO|" playwright-report/index.html || true
+
+      - name: Upload — Pages artifact
+        uses: actions/upload-pages-artifact@v3
         if: always()
         with:
-          name: "report-${{ inputs.environment }}-${{ inputs.version }}-${{ inputs.company }}"
           path: playwright-report/
-          retention-days: 30
 
       - name: Upload — Benchmark JSON
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: "benchmark-${{ inputs.environment }}-${{ inputs.version }}"
+          name: "benchmark-${{ inputs.environment }}-${{ inputs.version }}-${{ github.run_number }}"
           path: benchmark-results.json
           retention-days: 30
 
@@ -90,16 +116,34 @@ jobs:
         run: |
           echo "## Resultado da Publicação" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Campo      | Valor |" >> $GITHUB_STEP_SUMMARY
-          echo "|------------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Ambiente   | \`${{ inputs.environment }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Versão     | \`${{ inputs.version }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Empresa    | ${{ inputs.company }} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Campo | Valor |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Ambiente | \`${{ inputs.environment }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Versão | \`${{ inputs.version }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Empresa | ${{ inputs.company }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Run | #${{ github.run_number }} |" >> $GITHUB_STEP_SUMMARY
           if [ -f benchmark-results.json ]; then
-            LAST=$(node -e "const d=require('./benchmark-results.json'); const l=d[d.length-1]; console.log(JSON.stringify(l))")
-            TOTAL=$(echo $LAST | node -e "process.stdin.resume();let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.parse(d).totalFormatted))")
-            STATUS=$(echo $LAST | node -e "process.stdin.resume();let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.parse(d).status||'published'))")
+            TOTAL=$(node -e "const d=require('./benchmark-results.json');const l=d[d.length-1];console.log(l.totalFormatted||'-')" 2>/dev/null || echo "-")
+            STATUS=$(node -e "const d=require('./benchmark-results.json');const l=d[d.length-1];console.log(l.status||'published')" 2>/dev/null || echo "-")
             echo "| Tempo total | \`$TOTAL\` |" >> $GITHUB_STEP_SUMMARY
-            echo "| Status     | \`$STATUS\` |" >> $GITHUB_STEP_SUMMARY
+            echo "| Status | \`$STATUS\` |" >> $GITHUB_STEP_SUMMARY
           fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📊 [Ver relatório completo no GitHub Pages](https://ra-jhonatanborg.github.io/performance-benchmark/)" >> $GITHUB_STEP_SUMMARY
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Job 2: Publicar relatório no GitHub Pages
+  # ─────────────────────────────────────────────────────────────────────────────
+  deploy-report:
+    name: "Deploy → GitHub Pages"
+    needs: run-test
+    runs-on: ubuntu-latest
+    if: always()
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    steps:
+      - name: Publicar no GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
