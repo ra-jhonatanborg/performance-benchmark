@@ -473,26 +473,37 @@ test(
     const searchUrl =
       VERSION === 'v2' ? `${env.url}/reclamar/?ab-force=B` : `${env.url}/reclamar/`;
 
+    // TST às vezes não dispara domcontentloaded (loading no título persiste com tela já pronta).
+    // Usamos 'commit' para não travar no goto e depois aguardamos o conteúdo.
     console.log(`\n  [1/7] Navegando para: ${searchUrl}`);
-    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: T.pageLoad });
+    await page.goto(searchUrl, { waitUntil: 'commit', timeout: T.pageLoad });
 
-    // Etapa 1 — SSR/Next.js: hidratação ocorre DEPOIS do evento 'load'.
-    console.log('  [1/7] Aguardando load...');
-    await page.waitForLoadState('load', { timeout: 60_000 }).catch((e) => {
-      console.log(`  [1/7] load timeout/erro: ${(e as Error).message}`);
-    });
-    console.log('  [1/7] Aguardando networkidle (hidratação)...');
-    await page.waitForLoadState('networkidle', { timeout: 30_000 }).catch((e) => {
-      console.log(`  [1/7] networkidle timeout/erro: ${(e as Error).message}`);
-    });
+    // Aguarda a página ficar utilizável: load/networkidle OU campo de busca visível
+    const SEARCH_INPUT_SEL_ETAPA1 = [
+      'input#search',
+      'input[placeholder*="mpresa"]',
+      'input[placeholder*="elecione"]',
+      'input[placeholder*="eclamar"]',
+      'input[type="search"]',
+    ].join(', ');
 
-    console.log(`  [1/7] URL: ${page.url()} | Título: ${await page.title()}`);
+    // Load/networkidle podem não disparar no TST (loading no título); prioriza campo de busca.
+    console.log('  [1/7] Aguardando load/domcontentloaded (best-effort)...');
+    await Promise.race([
+      page.waitForLoadState('load', { timeout: 50_000 }).catch(() => {}),
+      page.waitForLoadState('domcontentloaded', { timeout: 40_000 }).catch(() => {}),
+    ]);
+    await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
+
+    // Critério de “página pronta”: campo de busca visível (TST pode ter tela pronta com loading no título)
+    console.log('  [1/7] Aguardando campo de busca (página utilizável)...');
+    await page.waitForSelector(SEARCH_INPUT_SEL_ETAPA1, { state: 'visible', timeout: 50_000 });
     await page.waitForSelector('main, #__next, [data-testid], h1, form', {
       state: 'visible',
-      timeout: 20_000,
-    }).catch((e) => {
-      console.log(`  [1/7] Conteúdo principal não encontrado: ${(e as Error).message}`);
-    });
+      timeout: 15_000,
+    }).catch(() => {});
+
+    console.log(`  [1/7] URL: ${page.url()} | Título: ${await page.title()}`);
 
     bench.mark('1. Página inicial carregada');
     await snap('01-pagina-busca', page, testInfo);
