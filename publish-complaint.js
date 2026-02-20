@@ -48,12 +48,11 @@ const DEFAULT_COMPLAINT_TEXT =
 const DEFAULT_PHONE = "83988089452";
 const TOKENS_FILE = path.join(__dirname, ".ra-tokens.json");
 
-// Campos raValida — configuráveis por posição (cada empresa define suas próprias perguntas)
-// RA_FORMS_FIELD_1..5 são opcionais. Se não definidos, o campo é ignorado.
+// Campos raValida — configuráveis por posição. Padrões para quando não enviados (ex.: Abdu Restaurante).
 const RAFORMS_FIELDS = [
-  process.env.RA_FORMS_FIELD_1 ?? "",
-  process.env.RA_FORMS_FIELD_2 ?? "",
-  process.env.RA_FORMS_FIELD_3 ?? "",
+  process.env.RA_FORMS_FIELD_1 ?? "jhonatan",
+  process.env.RA_FORMS_FIELD_2 ?? "06049690154",
+  process.env.RA_FORMS_FIELD_3 ?? "07/01/2026",
   process.env.RA_FORMS_FIELD_4 ?? "",
   process.env.RA_FORMS_FIELD_5 ?? "",
 ];
@@ -436,12 +435,22 @@ async function fillRaValidaFields(page, fieldValues) {
     if (isMasked) {
       await page.keyboard.type(value.replace(/\D/g, ""), { delay: 60 });
     } else {
-      await inp.fill(value);
+      await inp.evaluate((el, val) => {
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+        if (setter) {
+          setter.call(el, val);
+          el.dispatchEvent(new Event("input", { bubbles: true }));
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+        } else {
+          el.value = val;
+        }
+      }, value);
     }
 
     console.log(`  raValida[${i}] preenchido${isMasked ? " (mascarado)" : ""}`);
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(300);
   }
+  await page.waitForTimeout(500);
 }
 
 /** Preenche campos extras do passo 1 do ra-forms (após selecionar Sim) */

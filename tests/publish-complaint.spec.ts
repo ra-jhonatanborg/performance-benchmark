@@ -40,16 +40,15 @@ const VERSION       = (process.env.RA_VERSION || 'v1')  as 'v1' | 'v2';
 const COMPANY       =  process.env.RA_COMPANY || 'Abdu Restaurante';
 const DEFAULT_PHONE =  process.env.RA_PHONE   || '83988089452';
 
-// Campos raValida — configuráveis por posição (cada empresa define suas próprias perguntas)
-// RA_FORMS_FIELD_1, RA_FORMS_FIELD_2, RA_FORMS_FIELD_3 ... são opcionais.
-// Se não definidos, o campo é ignorado (deixado em branco).
+// Campos raValida — configuráveis por posição (cada empresa define suas próprias perguntas).
+// Valores padrão para quando o workflow não envia (ex.: Abdu Restaurante — nome, doc, data).
 const RAFORMS_FIELDS: string[] = [
-  process.env.RA_FORMS_FIELD_1 ?? '',
-  process.env.RA_FORMS_FIELD_2 ?? '',
-  process.env.RA_FORMS_FIELD_3 ?? '',
+  process.env.RA_FORMS_FIELD_1 ?? 'jhonatan',
+  process.env.RA_FORMS_FIELD_2 ?? '06049690154',
+  process.env.RA_FORMS_FIELD_3 ?? '07/01/2026',
   process.env.RA_FORMS_FIELD_4 ?? '',
   process.env.RA_FORMS_FIELD_5 ?? '',
-].filter((_, i) => i < 5); // garante no máximo 5 campos
+];
 
 const COMPLAINT_TEXT =
   process.env.RA_TEXT ||
@@ -420,12 +419,25 @@ async function fillRaValidaFields(page: Page, fieldValues: string[]) {
       // Campo com máscara (ex.: data __/__/____): digita só os dígitos
       await page.keyboard.type(value.replace(/\D/g, ''), { delay: 60 });
     } else {
-      await inp.fill(value);
+      // React: setter nativo + input/change para o estado do form atualizar (evita "Este campo é obrigatório")
+      await inp.evaluate((el: HTMLInputElement, val: string) => {
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+        if (setter) {
+          setter.call(el, val);
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        } else {
+          el.value = val;
+        }
+      }, value);
     }
 
     console.log(`  raValida[${i}] preenchido${isMasked ? ' (mascarado)' : ''}`);
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(300);
   }
+
+  // Pausa para validação do form atualizar antes de clicar em "Próximo passo"
+  await page.waitForTimeout(500);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
