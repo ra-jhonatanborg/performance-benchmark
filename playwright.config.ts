@@ -50,7 +50,7 @@ export default defineConfig({
         },
       },
       testMatch: '**/publish-complaint.spec.ts',
-      timeout: 180_000,
+      timeout: 300_000, // 5 min — cobre networkidle + hidratação SSR em PROD/CI
     },
     {
       name: 'benchmark-chromium',

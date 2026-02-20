@@ -204,11 +204,11 @@ const IS_CI = !!process.env.CI;
 
 const T = {
   pageLoad:   IS_CI ? 120_000 : 60_000,  // page.goto
-  element:    IS_CI ?  60_000 : 20_000,  // waitFor elemento genérico
+  element:    IS_CI ?  90_000 : 20_000,  // waitFor elemento — aumentado para cobrir hidratação SSR
   navigation: IS_CI ?  60_000 : 30_000,  // waitForURL
-  formDetect: IS_CI ?  40_000 : 15_000,  // Promise.race ra-forms vs textarea
-  formField:  IS_CI ?  35_000 : 15_000,  // botões Continuar / Próximo passo
-  textarea:   IS_CI ?  50_000 : 25_000,  // waitFor textarea
+  formDetect: IS_CI ?  60_000 : 15_000,  // Promise.race ra-forms vs textarea
+  formField:  IS_CI ?  45_000 : 15_000,  // botões Continuar / Próximo passo
+  textarea:   IS_CI ?  60_000 : 25_000,  // waitFor textarea
   phone:      IS_CI ?  30_000 : 12_000,  // campo de telefone
   simCheck:   IS_CI ?  15_000 :  5_000,  // radio Sim (pequeno)
   publish:    IS_CI ?  90_000 : 60_000,  // aguarda /sucesso
@@ -372,12 +372,18 @@ test(
 
     console.log(`\n  [1/7] Navegando para: ${searchUrl}`);
     await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: T.pageLoad });
-    // Aguarda conteúdo principal + hidratação JS
-    await page.waitForLoadState('load', { timeout: 45_000 }).catch(() => {});
+
+    // Etapa 1 — SSR/Next.js: hidratação ocorre DEPOIS do evento 'load'.
+    // networkidle é o indicador mais confiável de que o React terminou de hidratar.
+    await page.waitForLoadState('load',        { timeout: 60_000 }).catch(() => {});
+    await page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
+
+    // Garante que o conteúdo principal está visível antes de continuar
     await page.waitForSelector('main, #__next, [data-testid], h1, form', {
       state: 'visible',
-      timeout: 30_000,
+      timeout: 20_000,
     }).catch(() => {});
+
     bench.mark('1. Página inicial carregada');
     await snap('01-pagina-busca', page, testInfo);
     console.log(`  URL após load: ${page.url()}`);
@@ -387,7 +393,6 @@ test(
     // ───────────────────────────────────────────────────────────────────────
     console.log(`  [2/7] Buscando empresa: "${COMPANY}"`);
 
-    // Seletores em ordem de especificidade
     // V1 usa id="search" | V2 usa placeholder genérico
     const SEARCH_INPUT_SEL = [
       'input#search',
@@ -400,7 +405,11 @@ test(
       'input[type="search"]',
     ].join(', ');
 
+    // Espera o input aparecer no DOM (attached) antes de aguardar visibilidade
+    // — em SSR/Next.js o elemento pode estar no DOM antes de ser visível
     const searchInput = page.locator(SEARCH_INPUT_SEL).first();
+    await searchInput.waitFor({ state: 'attached', timeout: T.element });
+    await searchInput.scrollIntoViewIfNeeded().catch(() => {});
     await searchInput.waitFor({ state: 'visible', timeout: T.element });
     await searchInput.fill(COMPANY);
     await page.waitForTimeout(T.debounce);
