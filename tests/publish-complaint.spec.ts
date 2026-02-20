@@ -235,6 +235,18 @@ async function fillReactInput(page: Page, selector: string, value: string) {
   );
 }
 
+/** Captura screenshot e anexa ao relatório Playwright com nome numerado */
+async function snap(
+  label: string,
+  page: Page,
+  testInfo: import('@playwright/test').TestInfo,
+) {
+  try {
+    const body = await page.screenshot({ fullPage: true });
+    await testInfo.attach(label, { body, contentType: 'image/png' });
+  } catch { /* falha silenciosa — não interrompe o fluxo */ }
+}
+
 /** Fecha modal de reclamação por voz se aparecer */
 async function closeVoiceModalIfPresent(page: Page) {
   try {
@@ -363,17 +375,8 @@ test(
       timeout: 30_000,
     }).catch(() => {});
     bench.mark('1. Página inicial carregada');
-
-    // Screenshot de diagnóstico — ajuda a identificar problemas de renderização no CI
-    if (IS_CI) {
-      const debugShot = await page.screenshot({ fullPage: false });
-      await testInfo.attach('debug-pagina-inicial', {
-        body: debugShot,
-        contentType: 'image/png',
-      });
-      console.log(`  URL após load: ${page.url()}`);
-      console.log(`  Título da página: ${await page.title()}`);
-    }
+    await snap('01-pagina-busca', page, testInfo);
+    console.log(`  URL após load: ${page.url()}`);
 
     // ───────────────────────────────────────────────────────────────────────
     // Etapa 2 — Buscar empresa
@@ -416,6 +419,7 @@ test(
 
     // Aguarda qualquer item da lista aparecer
     await page.waitForSelector(RESULT_ITEM_SEL, { state: 'visible', timeout: T.element });
+    await snap('02-resultados-busca', page, testInfo);
 
     // Tenta clicar no item que contém o nome da empresa (match parcial)
     const exactItem = page.locator(
@@ -463,12 +467,14 @@ test(
     console.log(`  URL: ${page.url()} | Cenário: ${step4Result}`);
 
     if (step4Result === 'retention') {
+      await snap('03-pagina-retencao', page, testInfo);
       const reclamarLink = page
         .locator('a:has-text("Reclamar"), button:has-text("Reclamar"), [href*="minha-historia"]')
         .first();
       await reclamarLink.click();
       console.log('  Página de retenção detectada → clicou em Reclamar');
     } else if (step4Result === 'direct') {
+      await snap('03-empresa-sem-retencao', page, testInfo);
       console.log('  Empresa sem produtos → já está em minha-historia');
     } else {
       throw new Error('Etapa 4: nem página de retenção nem minha-historia foram detectados no tempo limite.');
@@ -506,8 +512,10 @@ test(
     ]);
 
     if (screenType === 'ravalida') {
+      await snap('04-raforms-ravalida', page, testInfo);
       console.log('  [5/7] ra-forms raValida detectado — preenchendo campos privados...');
       await fillRaValidaFields(page, RAFORMS_FIELDS);
+      await snap('04b-raforms-ravalida-preenchido', page, testInfo);
 
       const nextBtn = page.locator('#btn-continue-ravalida, button:has-text("Proximo passo"), button:has-text("Próximo passo")').first();
       await nextBtn.waitFor({ state: 'visible', timeout: T.formField });
@@ -518,6 +526,7 @@ test(
       console.log('  [5/7] Textarea visível após raValida.');
 
     } else if (screenType === 'ra-forms') {
+      await snap('04-raforms-sim-nao', page, testInfo);
       console.log('  [5/7] ra-forms Passo 1 detectado — preenchendo...');
 
       const simRadio = page
@@ -546,6 +555,7 @@ test(
     } else if (screenType === 'textarea') {
       console.log('  [5/7] ra-forms não presente — textarea já visível.');
     } else {
+      await snap('04-tela-desconhecida', page, testInfo);
       console.log('  [5/7] Tela desconhecida — continuando...');
     }
     bench.mark(
@@ -559,6 +569,7 @@ test(
 
     await closeVoiceModalIfPresent(page);
     await page.waitForSelector(TEXTAREA_SEL, { state: 'visible', timeout: T.textarea });
+    await snap('05-formulario-reclamacao', page, testInfo);
 
     await fillReactInput(page, 'textarea[name="myHistory.description"]', COMPLAINT_TEXT).catch(
       async () => {
@@ -621,6 +632,7 @@ test(
     // ───────────────────────────────────────────────────────────────────────
     console.log('  [7/7] Confirmando e publicando reclamação...');
     await page.waitForTimeout(1_000);
+    await snap('06-antes-publicar', page, testInfo);
 
     if (VERSION === 'v2') {
       const phoneInputV2 = page.locator(PHONE_SEL).first();
@@ -669,12 +681,7 @@ test(
       });
 
       bench.mark('8. Bloqueado — reclamação duplicada (3 dias)');
-
-      const screenshot = await page.screenshot({ fullPage: true });
-      await testInfo.attach('screenshot-bloqueado', {
-        body: screenshot,
-        contentType: 'image/png',
-      });
+      await snap('07-bloqueado-3-dias', page, testInfo);
 
       const result = bench.report({ env, version: VERSION, company: COMPANY });
       await testInfo.attach('benchmark-json', {
@@ -723,12 +730,7 @@ test(
       });
 
       bench.mark('8. Bloqueado — reclamação duplicada (3 dias)');
-
-      const screenshot = await page.screenshot({ fullPage: true });
-      await testInfo.attach('screenshot-bloqueado', {
-        body: screenshot,
-        contentType: 'image/png',
-      });
+      await snap('07-bloqueado-3-dias-pos-publicar', page, testInfo);
 
       const result = bench.report({ env, version: VERSION, company: COMPANY });
       await testInfo.attach('benchmark-json', {
@@ -741,13 +743,7 @@ test(
 
     bench.mark('8. Tela de sucesso atingida');
     console.log(`\n  URL final: ${page.url()}`);
-
-    // Screenshot de sucesso (visível no Playwright HTML report)
-    const screenshot = await page.screenshot({ fullPage: true });
-    await testInfo.attach('screenshot-sucesso', {
-      body: screenshot,
-      contentType: 'image/png',
-    });
+    await snap('07-sucesso', page, testInfo);
 
     // Relatório de benchmark
     const result = bench.report({ env, version: VERSION, company: COMPANY });
