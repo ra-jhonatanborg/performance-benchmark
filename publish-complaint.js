@@ -621,7 +621,7 @@ async function runComplaintFlow(inputs) {
     const step4Result = await Promise.race([
       page
         .waitForSelector(
-          'a:has-text("Reclamar"), button:has-text("Reclamar"), [href*="minha-historia"]',
+          'a:has-text("Reclamar"), button:has-text("Reclamar"), a[href*="minha-historia"]',
           { state: "visible", timeout: 30000 },
         )
         .then(() => "retention")
@@ -636,7 +636,7 @@ async function runComplaintFlow(inputs) {
 
     if (step4Result === "retention") {
       const reclamarLink = page
-        .locator('a:has-text("Reclamar"), button:has-text("Reclamar"), [href*="minha-historia"]')
+        .locator('a:has-text("Reclamar"), button:has-text("Reclamar"), a[href*="minha-historia"]')
         .first();
       await reclamarLink.click();
       console.log("  Página de retenção detectada → clicou em Reclamar");

@@ -643,7 +643,7 @@ test(
       // Cenário A: empresa TEM produtos → botão "Reclamar" visível
       page
         .waitForSelector(
-          'a:has-text("Reclamar"), button:has-text("Reclamar"), [href*="minha-historia"]',
+          'a:has-text("Reclamar"), button:has-text("Reclamar"), a[href*="minha-historia"]',
           { state: 'visible', timeout: T.navigation },
         )
         .then(() => 'retention')
@@ -660,7 +660,7 @@ test(
     if (step4Result === 'retention') {
       await snap('03-pagina-retencao', page, testInfo);
       const reclamarLink = page
-        .locator('a:has-text("Reclamar"), button:has-text("Reclamar"), [href*="minha-historia"]')
+        .locator('a:has-text("Reclamar"), button:has-text("Reclamar"), a[href*="minha-historia"]')
         .first();
       await reclamarLink.click();
       console.log('  Página de retenção detectada → clicou em Reclamar');
