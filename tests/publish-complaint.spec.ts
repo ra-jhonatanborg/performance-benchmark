@@ -283,9 +283,10 @@ function attachConsoleLogs(
   }
 }
 
-/** Coleta diagnóstico da página (URL, título, inputs no DOM) para debug de timeout */
+/** Coleta diagnóstico da página (URL, título, inputs no DOM, Cloudflare) para debug de timeout */
 async function collectPageDiagnostics(page: Page) {
   return page.evaluate(() => {
+    const bodyText = document.body?.innerText ?? '';
     const inputs = Array.from(document.querySelectorAll('input')).map((el) => ({
       tag: el.tagName,
       id: el.id || null,
@@ -294,14 +295,24 @@ async function collectPageDiagnostics(page: Page) {
       placeholder: (el.getAttribute('placeholder') || '').slice(0, 50),
       visible: el.offsetParent !== null && (el as HTMLElement).offsetWidth > 0,
     }));
+    const cloudflareKeywords = [
+      'Performing security verification',
+      'Verify you are human',
+      'security service to protect',
+      'Cloudflare',
+    ];
+    const likelyCloudflareChallenge = cloudflareKeywords.some((k) =>
+      bodyText.toLowerCase().includes(k.toLowerCase()),
+    );
     return {
       url: window.location.href,
       title: document.title,
-      bodyTextLength: document.body?.innerText?.length ?? 0,
+      bodyTextLength: bodyText.length,
       inputCount: inputs.length,
       inputs,
       hasMain: !!document.querySelector('main'),
       hasNext: !!document.querySelector('#__next'),
+      likelyCloudflareChallenge,
     };
   });
 }
@@ -476,6 +487,22 @@ test(
     await snap('01-pagina-busca', page, testInfo);
     console.log(`  [1/7] Screenshot 01 concluído.`);
 
+    // Detecta se a Cloudflare exibiu página de verificação (evita timeout genérico)
+    const cloudflareChallenge = await page
+      .getByText(/Performing security verification|Verify you are human|security service to protect/i)
+      .first()
+      .isVisible({ timeout: 2_000 })
+      .catch(() => false);
+    if (cloudflareChallenge) {
+      await snap('99-cloudflare-challenge', page, testInfo);
+      attachConsoleLogs(testInfo, consoleEntries, 'console-logs');
+      throw new Error(
+        'Cloudflare exibiu página de verificação ("Verify you are human"). ' +
+        'Em ambientes com proteção Cloudflare o teste pode falhar de forma intermitente. ' +
+        'Considere rodar contra TST/EVO ou em IPs confiáveis. Ver anexo 99-cloudflare-challenge.',
+      );
+    }
+
     // ───────────────────────────────────────────────────────────────────────
     // Etapa 2 — Buscar empresa
     // ───────────────────────────────────────────────────────────────────────
@@ -512,6 +539,7 @@ test(
         inputCount?: number;
         hasMain?: boolean;
         hasNext?: boolean;
+        likelyCloudflareChallenge?: boolean;
         inputs?: Array<{ tag: string; id: string | null; name: string | null; type: string; placeholder: string; visible: boolean }>;
       };
 
@@ -521,6 +549,9 @@ test(
       console.error(`  bodyTextLength: ${D.bodyTextLength ?? '?'}`);
       console.error(`  inputCount: ${D.inputCount ?? '?'}`);
       console.error(`  hasMain: ${D.hasMain ?? '?'} | hasNext: ${D.hasNext ?? '?'}`);
+      if (D.likelyCloudflareChallenge) {
+        console.error('  ⚠ Página parece ser desafio Cloudflare (Verify you are human).');
+      }
       if (Array.isArray(D.inputs) && D.inputs.length > 0) {
         console.error('  Inputs no DOM:', JSON.stringify(D.inputs, null, 2));
       } else {
@@ -535,9 +566,12 @@ test(
       attachConsoleLogs(testInfo, consoleEntries, 'diagnostico-etapa2-console');
       await snap('99-etapa2-falha-diagnostico', page, testInfo);
 
+      const cloudflareHint = D.likelyCloudflareChallenge
+        ? ' Página de verificação Cloudflare detectada — o site pode estar exibindo "Verify you are human".'
+        : '';
       throw new Error(
         `Campo de busca não ficou visível em ${T.element}ms. ` +
-        `URL=${page.url()} | inputs no DOM=${D.inputCount ?? '?'}. ` +
+        `URL=${page.url()} | inputs no DOM=${D.inputCount ?? '?'}.${cloudflareHint} ` +
         `Ver anexos "diagnostico-etapa2-falha" e "99-etapa2-falha-diagnostico".`,
       );
     }

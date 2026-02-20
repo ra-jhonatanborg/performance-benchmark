@@ -101,6 +101,16 @@ jobs:
       - name: Instalar Chromium
         run: yarn playwright install chromium --with-deps
 
+      # Perfil do Chromium em cache: reutiliza cookies/estado entre runs (pode reduzir desafios Cloudflare)
+      - name: Restaurar perfil do navegador (cache)
+        uses: actions/cache@v4
+        with:
+          path: .browser-profile
+          key: playwright-browser-profile-${{ runner.os }}-v1
+
+      - name: Garantir diretório do perfil
+        run: mkdir -p .browser-profile
+
       # Mascara os tokens nos logs ANTES de qualquer uso (obrigatório por segurança)
       - name: Mascarar tokens nos logs
         run: |
@@ -131,6 +141,8 @@ jobs:
           RA_RTK: ${{ inputs.rtk || secrets.RA_RTK }}
           RA_ITK: ${{ inputs.itk || secrets.RA_ITK }}
           CI: "true"
+          # Perfil persistente: Chromium reutiliza cookies/estado entre runs (menos chance de Cloudflare)
+          PLAYWRIGHT_BROWSER_PROFILE_DIR: ${{ github.workspace }}/.browser-profile
         run: yarn playwright test publish-complaint --project=publish-complaint
 
       # Injeta informações do run no topo do relatório HTML

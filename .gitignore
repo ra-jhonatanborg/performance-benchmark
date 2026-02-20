@@ -6,6 +6,7 @@ node_modules/
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+.browser-profile/
 
 # Tokens e credenciais locais
 .ra-tokens.json

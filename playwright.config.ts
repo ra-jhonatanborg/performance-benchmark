@@ -40,6 +40,10 @@ export default defineConfig({
         userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
         launchOptions: {
           slowMo: process.env.CI ? 0 : 150,
+          // Perfil persistente no CI: reutiliza cookies/estado entre runs (pode reduzir desafios Cloudflare)
+          ...(process.env.CI && process.env.PLAYWRIGHT_BROWSER_PROFILE_DIR
+            ? { userDataDir: process.env.PLAYWRIGHT_BROWSER_PROFILE_DIR }
+            : {}),
           args: process.env.CI
             ? [
                 '--no-sandbox',
