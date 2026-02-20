@@ -611,13 +611,14 @@ async function runComplaintFlow(inputs) {
     bench.mark("3. Empresa selecionada");
 
     // -----------------------------------------------------------------------
-    // Etapa 4: Página de retenção (opcional) → clicar Reclamar
-    // Empresas sem produtos pulam direto para minha-historia
+    // Etapa 4: Página de retenção (opcional) ou redirect automático
+    // Com produtos: fica em /reclamar/{id}/ e mostra "Reclamar".
+    // Sem produtos (ex.: Abdu Restaurante): /reclamar/{id}/ → redirect para
+    // /reclamar/{id}/minha-historia/ — não aparece tela de retenção.
     // -----------------------------------------------------------------------
-    console.log("  [4/7] Aguardando página de retenção ou redirect direto...");
+    console.log("  [4/7] Aguardando página de retenção ou redirect para minha-historia...");
 
     const step4Result = await Promise.race([
-      // Cenário A: empresa TEM produtos → página de retenção com botão "Reclamar"
       page
         .waitForSelector(
           'a:has-text("Reclamar"), button:has-text("Reclamar"), [href*="minha-historia"]',
@@ -625,9 +626,8 @@ async function runComplaintFlow(inputs) {
         )
         .then(() => "retention")
         .catch(() => null),
-      // Cenário B: empresa SEM produtos → redireciona direto para minha-historia
       page
-        .waitForURL(/minha-historia/, { timeout: 30000, waitUntil: "domcontentloaded" })
+        .waitForURL(/\/reclamar\/[^/]+\/minha-historia/, { timeout: 30000, waitUntil: "domcontentloaded" })
         .then(() => "direct")
         .catch(() => null),
     ]);
