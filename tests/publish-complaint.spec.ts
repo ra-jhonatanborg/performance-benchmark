@@ -303,17 +303,42 @@ test(
 
     console.log(`\n  [1/7] Navegando para: ${searchUrl}`);
     await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: T.pageLoad });
-    // Em CI aguarda a hidratação do JS antes de interagir com os elementos
-    await page.waitForLoadState('load', { timeout: 30_000 }).catch(() => {});
+    // Aguarda conteúdo principal + hidratação JS
+    await page.waitForLoadState('load', { timeout: 45_000 }).catch(() => {});
+    await page.waitForSelector('main, #__next, [data-testid], h1, form', {
+      state: 'visible',
+      timeout: 30_000,
+    }).catch(() => {});
     bench.mark('1. Página inicial carregada');
+
+    // Screenshot de diagnóstico — ajuda a identificar problemas de renderização no CI
+    if (IS_CI) {
+      const debugShot = await page.screenshot({ fullPage: false });
+      await testInfo.attach('debug-pagina-inicial', {
+        body: debugShot,
+        contentType: 'image/png',
+      });
+      console.log(`  URL após load: ${page.url()}`);
+      console.log(`  Título da página: ${await page.title()}`);
+    }
 
     // ───────────────────────────────────────────────────────────────────────
     // Etapa 2 — Buscar empresa
     // ───────────────────────────────────────────────────────────────────────
     console.log(`  [2/7] Buscando empresa: "${COMPANY}"`);
-    const searchInput = page
-      .locator('input[type="text"], input[type="search"], input:not([type])')
-      .first();
+
+    // Seletores em ordem de especificidade — placeholder primeiro para evitar inputs ocultos
+    const SEARCH_INPUT_SEL = [
+      'input[placeholder*="mpresa"]',
+      'input[placeholder*="eclamar"]',
+      'input[placeholder*="earch"]',
+      'input[aria-label*="mpresa"]',
+      'input[aria-label*="usca"]',
+      'input[type="search"]',
+      'input[type="text"]',
+    ].join(', ');
+
+    const searchInput = page.locator(SEARCH_INPUT_SEL).first();
     await searchInput.waitFor({ state: 'visible', timeout: T.element });
     await searchInput.fill(COMPANY);
     await page.waitForTimeout(T.debounce);

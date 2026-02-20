@@ -36,9 +36,17 @@ export default defineConfig({
         // CI vazio → browser visível maximizado (uso local)
         headless: !!process.env.CI,
         viewport: process.env.CI ? { width: 1280, height: 720 } : null,
+        // User-Agent realista para evitar detecção de bot no PROD
+        userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
         launchOptions: {
           slowMo: process.env.CI ? 0 : 150,
-          args: process.env.CI ? ['--no-sandbox', '--disable-dev-shm-usage'] : ['--start-maximized'],
+          args: process.env.CI
+            ? [
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-blink-features=AutomationControlled',
+              ]
+            : ['--start-maximized'],
         },
       },
       testMatch: '**/publish-complaint.spec.ts',
