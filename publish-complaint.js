@@ -554,23 +554,40 @@ async function runComplaintFlow(inputs) {
     bench.mark("3. Empresa selecionada");
 
     // -----------------------------------------------------------------------
-    // Etapa 4: Página de retenção → clicar Reclamar
+    // Etapa 4: Página de retenção (opcional) → clicar Reclamar
+    // Empresas sem produtos pulam direto para minha-historia
     // -----------------------------------------------------------------------
-    console.log("  [4/7] Aguardando página de retenção...");
-    await page.waitForURL(/\/reclamar\/(v2\/)?[A-Za-z0-9_-]+\/$/, {
-      timeout: 30000,
-      waitUntil: "domcontentloaded",
-    });
-    console.log(`  URL: ${page.url()}`);
+    console.log("  [4/7] Aguardando página de retenção ou redirect direto...");
 
-    // Clica no link/botão "Reclamar"
-    const reclamarLink = page
-      .locator(
-        'a:has-text("Reclamar"), button:has-text("Reclamar"), [href*="minha-historia"]',
-      )
-      .first();
-    await reclamarLink.waitFor({ state: "visible", timeout: 20000 });
-    await reclamarLink.click();
+    const step4Result = await Promise.race([
+      // Cenário A: empresa TEM produtos → página de retenção com botão "Reclamar"
+      page
+        .waitForSelector(
+          'a:has-text("Reclamar"), button:has-text("Reclamar"), [href*="minha-historia"]',
+          { state: "visible", timeout: 30000 },
+        )
+        .then(() => "retention")
+        .catch(() => null),
+      // Cenário B: empresa SEM produtos → redireciona direto para minha-historia
+      page
+        .waitForURL(/minha-historia/, { timeout: 30000, waitUntil: "domcontentloaded" })
+        .then(() => "direct")
+        .catch(() => null),
+    ]);
+
+    console.log(`  URL: ${page.url()} | Cenário: ${step4Result}`);
+
+    if (step4Result === "retention") {
+      const reclamarLink = page
+        .locator('a:has-text("Reclamar"), button:has-text("Reclamar"), [href*="minha-historia"]')
+        .first();
+      await reclamarLink.click();
+      console.log("  Página de retenção detectada → clicou em Reclamar");
+    } else if (step4Result === "direct") {
+      console.log("  Empresa sem produtos → já está em minha-historia");
+    } else {
+      throw new Error("Etapa 4: nem página de retenção nem minha-historia foram detectados.");
+    }
     bench.mark("4. Página de retenção → Reclamar clicado");
 
     // -----------------------------------------------------------------------
@@ -579,10 +596,13 @@ async function runComplaintFlow(inputs) {
     //   B) Textarea diretamente — empresa sem ra-forms
     // -----------------------------------------------------------------------
     console.log("  [5/7] Aguardando formulário...");
-    await page.waitForURL(/minha-historia/, {
-      timeout: 30000,
-      waitUntil: "domcontentloaded",
-    });
+    // Se o cenário B ocorreu, já estamos em minha-historia — evita timeout desnecessário
+    if (!page.url().includes("minha-historia")) {
+      await page.waitForURL(/minha-historia/, {
+        timeout: 30000,
+        waitUntil: "domcontentloaded",
+      });
+    }
 
     // Detecta qual tela apareceu após navegar para minha-historia
     const TEXTAREA_SEL =

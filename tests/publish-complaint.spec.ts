@@ -386,30 +386,53 @@ test(
     bench.mark('3. Empresa selecionada');
 
     // ───────────────────────────────────────────────────────────────────────
-    // Etapa 4 — Página de retenção → clicar Reclamar
+    // Etapa 4 — Página de retenção (opcional) → clicar Reclamar
+    // Algumas empresas sem produtos pulam direto para minha-historia
     // ───────────────────────────────────────────────────────────────────────
-    console.log('  [4/7] Aguardando página de retenção...');
-    await page.waitForURL(/\/reclamar\/(v2\/)?[A-Za-z0-9_-]+\/$/, {
-      timeout: T.navigation,
-      waitUntil: 'domcontentloaded',
-    });
-    console.log(`  URL: ${page.url()}`);
+    console.log('  [4/7] Aguardando página de retenção ou redirect direto...');
 
-    const reclamarLink = page
-      .locator('a:has-text("Reclamar"), button:has-text("Reclamar"), [href*="minha-historia"]')
-      .first();
-    await reclamarLink.waitFor({ state: 'visible', timeout: T.element });
-    await reclamarLink.click();
+    const step4Result = await Promise.race([
+      // Cenário A: empresa TEM produtos → página de retenção com botão "Reclamar"
+      page
+        .waitForSelector(
+          'a:has-text("Reclamar"), button:has-text("Reclamar"), [href*="minha-historia"]',
+          { state: 'visible', timeout: T.navigation },
+        )
+        .then(() => 'retention')
+        .catch(() => null),
+      // Cenário B: empresa SEM produtos → redireciona direto para minha-historia
+      page
+        .waitForURL(/minha-historia/, { timeout: T.navigation, waitUntil: 'domcontentloaded' })
+        .then(() => 'direct')
+        .catch(() => null),
+    ]);
+
+    console.log(`  URL: ${page.url()} | Cenário: ${step4Result}`);
+
+    if (step4Result === 'retention') {
+      const reclamarLink = page
+        .locator('a:has-text("Reclamar"), button:has-text("Reclamar"), [href*="minha-historia"]')
+        .first();
+      await reclamarLink.click();
+      console.log('  Página de retenção detectada → clicou em Reclamar');
+    } else if (step4Result === 'direct') {
+      console.log('  Empresa sem produtos → já está em minha-historia');
+    } else {
+      throw new Error('Etapa 4: nem página de retenção nem minha-historia foram detectados no tempo limite.');
+    }
     bench.mark('4. Página de retenção → Reclamar clicado');
 
     // ───────────────────────────────────────────────────────────────────────
     // Etapa 5 — ra-forms ou textarea direta
     // ───────────────────────────────────────────────────────────────────────
     console.log('  [5/7] Aguardando formulário...');
-    await page.waitForURL(/minha-historia/, {
-      timeout: T.navigation,
-      waitUntil: 'domcontentloaded',
-    });
+    // Se o cenário B ocorreu, já estamos em minha-historia — waitForURL resolve imediatamente
+    if (!page.url().includes('minha-historia')) {
+      await page.waitForURL(/minha-historia/, {
+        timeout: T.navigation,
+        waitUntil: 'domcontentloaded',
+      });
+    }
 
     const screenType = await Promise.race([
       page
