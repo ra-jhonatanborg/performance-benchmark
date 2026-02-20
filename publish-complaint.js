@@ -653,8 +653,16 @@ async function runComplaintFlow(inputs) {
     }
 
     // Detecta qual tela apareceu após navegar para minha-historia
-    const TEXTAREA_SEL =
-      'textarea[name="myHistory.description"], textarea[placeholder*="reclamação"], textarea[placeholder*="compra"], textarea';
+    const TEXTAREA_SEL = [
+      'textarea[name="myHistory.description"]',
+      'textarea[data-testid="complaint-history-description"]',
+      '#complaint-history-description',
+      'textarea[placeholder*="grave"]',
+      'textarea[placeholder*="screva"]',
+      'textarea[placeholder*="reclamação"]',
+      'textarea[placeholder*="compra"]',
+      'textarea',
+    ].join(', ');
     const RADIO_SEL     = 'input[type="radio"], label:has-text("Sim"), [class*="radio"]:has-text("Sim")';
     const RAVALIDA_SEL  = 'input[name^="raValida"], #btn-continue-ravalida';
 
@@ -686,6 +694,10 @@ async function runComplaintFlow(inputs) {
       await nextBtn.waitFor({ state: "visible", timeout: 15000 });
       await nextBtn.click();
       console.log("  [5/7] Campos raValida preenchidos → avançando...");
+
+      // Aguarda o form raValida fechar e possível transição de página
+      await page.waitForSelector('[data-testid="form"]', { state: "hidden", timeout: 10000 }).catch(() => {});
+      await page.waitForLoadState("domcontentloaded", { timeout: 30000 }).catch(() => {});
 
       await page.waitForSelector(TEXTAREA_SEL, { state: "visible", timeout: 25000 });
       console.log("  [5/7] Textarea visível após raValida.");

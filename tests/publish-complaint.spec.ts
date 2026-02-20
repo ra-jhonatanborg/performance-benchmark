@@ -166,6 +166,10 @@ function createBenchmark() {
 
 const TEXTAREA_SEL = [
   'textarea[name="myHistory.description"]',
+  'textarea[data-testid="complaint-history-description"]',
+  '#complaint-history-description',
+  'textarea[placeholder*="grave"]',      // "Escreva ou grave seu problema aqui"
+  'textarea[placeholder*="screva"]',
   'textarea[placeholder*="reclamação"]',
   'textarea[placeholder*="compra"]',
   'textarea',
@@ -521,6 +525,11 @@ test(
       await nextBtn.waitFor({ state: 'visible', timeout: T.formField });
       await nextBtn.click();
       console.log('  [5/7] Campos raValida preenchidos → avançando...');
+
+      // Aguarda o form raValida fechar e/ou possível navegação interna
+      await page.waitForSelector('[data-testid="form"]', { state: 'hidden', timeout: 10_000 }).catch(() => {});
+      await page.waitForLoadState('domcontentloaded', { timeout: 30_000 }).catch(() => {});
+      await snap('04c-apos-ravalida-next', page, testInfo);
 
       await page.waitForSelector(TEXTAREA_SEL, { state: 'visible', timeout: T.textarea });
       console.log('  [5/7] Textarea visível após raValida.');
