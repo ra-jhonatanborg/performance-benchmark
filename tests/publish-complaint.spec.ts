@@ -239,6 +239,29 @@ async function fillReactInput(page: Page, selector: string, value: string) {
   );
 }
 
+/** Coleta diagnóstico da página (URL, título, inputs no DOM) para debug de timeout */
+async function collectPageDiagnostics(page: Page) {
+  return page.evaluate(() => {
+    const inputs = Array.from(document.querySelectorAll('input')).map((el) => ({
+      tag: el.tagName,
+      id: el.id || null,
+      name: el.name || null,
+      type: el.type || 'text',
+      placeholder: (el.getAttribute('placeholder') || '').slice(0, 50),
+      visible: el.offsetParent !== null && (el as HTMLElement).offsetWidth > 0,
+    }));
+    return {
+      url: window.location.href,
+      title: document.title,
+      bodyTextLength: document.body?.innerText?.length ?? 0,
+      inputCount: inputs.length,
+      inputs,
+      hasMain: !!document.querySelector('main'),
+      hasNext: !!document.querySelector('#__next'),
+    };
+  });
+}
+
 /** Captura screenshot e anexa ao relatório Playwright.
  *  Aguarda a página estar estável (sem loading spinners, body visível)
  *  antes de tirar a foto para evitar screenshots em branco.
@@ -385,26 +408,32 @@ test(
     await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: T.pageLoad });
 
     // Etapa 1 — SSR/Next.js: hidratação ocorre DEPOIS do evento 'load'.
-    // networkidle é o indicador mais confiável de que o React terminou de hidratar.
-    await page.waitForLoadState('load',        { timeout: 60_000 }).catch(() => {});
-    await page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => {});
+    console.log('  [1/7] Aguardando load...');
+    await page.waitForLoadState('load', { timeout: 60_000 }).catch((e) => {
+      console.log(`  [1/7] load timeout/erro: ${(e as Error).message}`);
+    });
+    console.log('  [1/7] Aguardando networkidle (hidratação)...');
+    await page.waitForLoadState('networkidle', { timeout: 30_000 }).catch((e) => {
+      console.log(`  [1/7] networkidle timeout/erro: ${(e as Error).message}`);
+    });
 
-    // Garante que o conteúdo principal está visível antes de continuar
+    console.log(`  [1/7] URL: ${page.url()} | Título: ${await page.title()}`);
     await page.waitForSelector('main, #__next, [data-testid], h1, form', {
       state: 'visible',
       timeout: 20_000,
-    }).catch(() => {});
+    }).catch((e) => {
+      console.log(`  [1/7] Conteúdo principal não encontrado: ${(e as Error).message}`);
+    });
 
     bench.mark('1. Página inicial carregada');
     await snap('01-pagina-busca', page, testInfo);
-    console.log(`  URL após load: ${page.url()}`);
+    console.log(`  [1/7] Screenshot 01 concluído.`);
 
     // ───────────────────────────────────────────────────────────────────────
     // Etapa 2 — Buscar empresa
     // ───────────────────────────────────────────────────────────────────────
     console.log(`  [2/7] Buscando empresa: "${COMPANY}"`);
 
-    // V1 usa id="search" | V2 usa placeholder genérico
     const SEARCH_INPUT_SEL = [
       'input#search',
       'input[placeholder*="mpresa"]',
@@ -416,12 +445,55 @@ test(
       'input[type="search"]',
     ].join(', ');
 
-    // Espera o input aparecer no DOM (attached) antes de aguardar visibilidade
-    // — em SSR/Next.js o elemento pode estar no DOM antes de ser visível
     const searchInput = page.locator(SEARCH_INPUT_SEL).first();
-    await searchInput.waitFor({ state: 'attached', timeout: T.element });
-    await searchInput.scrollIntoViewIfNeeded().catch(() => {});
-    await searchInput.waitFor({ state: 'visible', timeout: T.element });
+
+    try {
+      console.log(`  [2/7] Aguardando campo de busca (attached) — timeout ${T.element}ms...`);
+      await searchInput.waitFor({ state: 'attached', timeout: T.element });
+      console.log(`  [2/7] Campo de busca encontrado no DOM.`);
+      await searchInput.scrollIntoViewIfNeeded().catch(() => {});
+      console.log(`  [2/7] Aguardando campo de busca (visible)...`);
+      await searchInput.waitFor({ state: 'visible', timeout: T.element });
+      console.log(`  [2/7] Campo de busca visível.`);
+    } catch (err) {
+      const diagRaw = await collectPageDiagnostics(page).catch(() => null);
+      const diag = diagRaw ?? {};
+      const D = diag as {
+        url?: string;
+        title?: string;
+        bodyTextLength?: number;
+        inputCount?: number;
+        hasMain?: boolean;
+        hasNext?: boolean;
+        inputs?: Array<{ tag: string; id: string | null; name: string | null; type: string; placeholder: string; visible: boolean }>;
+      };
+
+      console.error('\n  --- DIAGNÓSTICO (etapa 2 — campo de busca não encontrado) ---');
+      console.error(`  URL: ${D.url ?? page.url()}`);
+      console.error(`  Título: ${D.title ?? (await page.title())}`);
+      console.error(`  bodyTextLength: ${D.bodyTextLength ?? '?'}`);
+      console.error(`  inputCount: ${D.inputCount ?? '?'}`);
+      console.error(`  hasMain: ${D.hasMain ?? '?'} | hasNext: ${D.hasNext ?? '?'}`);
+      if (Array.isArray(D.inputs) && D.inputs.length > 0) {
+        console.error('  Inputs no DOM:', JSON.stringify(D.inputs, null, 2));
+      } else {
+        console.error('  Nenhum input encontrado no DOM.');
+      }
+      console.error('  --- Fim diagnóstico ---\n');
+
+      await testInfo.attach('diagnostico-etapa2-falha', {
+        body: Buffer.from(JSON.stringify(diag, null, 2)),
+        contentType: 'application/json',
+      });
+      await snap('99-etapa2-falha-diagnostico', page, testInfo);
+
+      throw new Error(
+        `Campo de busca não ficou visível em ${T.element}ms. ` +
+        `URL=${page.url()} | inputs no DOM=${D.inputCount ?? '?'}. ` +
+        `Ver anexos "diagnostico-etapa2-falha" e "99-etapa2-falha-diagnostico".`,
+      );
+    }
+
     await searchInput.fill(COMPANY);
     await page.waitForTimeout(T.debounce);
     bench.mark('2. Busca de empresa enviada');
