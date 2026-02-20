@@ -348,32 +348,40 @@ test(
 
     // ───────────────────────────────────────────────────────────────────────
     // Etapa 3 — Selecionar empresa nos resultados
+    // V1: lista <li> dentro de #auto-complete-list-id (sem botões)
+    // V2: botões ou [role="option"]
     // ───────────────────────────────────────────────────────────────────────
     console.log('  [3/7] Selecionando empresa nos resultados...');
-    const firstWord  = COMPANY.split(' ')[0];
-    const companyBtn = page
-      .locator(
-        `button:has-text("${COMPANY}"), [role="option"]:has-text("${COMPANY}"), li:has-text("${COMPANY}")`,
-      )
-      .first();
+    const firstWord = COMPANY.split(' ')[0];
 
-    const exactVisible = await companyBtn.isVisible({ timeout: T.element }).catch(() => false);
+    // Seletor unificado: cobre V1 (li em #auto-complete-list-id) e V2 (button / role=option)
+    const RESULT_ITEM_SEL =
+      `#auto-complete-list-id li:not([id="action-button"]), ` +
+      `[role="option"], ` +
+      `[role="listbox"] li, ` +
+      `button:has-text("${firstWord}")`;
+
+    // Aguarda qualquer item da lista aparecer
+    await page.waitForSelector(RESULT_ITEM_SEL, { state: 'visible', timeout: T.element });
+
+    // Tenta clicar no item que contém o nome da empresa (match parcial)
+    const exactItem = page.locator(
+      `#auto-complete-list-id li:has-text("${firstWord}"):not([id="action-button"]), ` +
+      `[role="option"]:has-text("${firstWord}"), ` +
+      `button:has-text("${firstWord}")`
+    ).first();
+
+    const exactVisible = await exactItem.isVisible({ timeout: T.formField }).catch(() => false);
     if (exactVisible) {
-      await companyBtn.click();
+      await exactItem.click();
     } else {
-      const byWord = page
-        .locator(`button:has-text("${firstWord}"), [role="option"]:has-text("${firstWord}")`)
-        .first();
-      const wordVisible = await byWord.isVisible({ timeout: T.formField }).catch(() => false);
-      if (wordVisible) {
-        await byWord.click();
-      } else {
-        console.log('  Tentando primeiro resultado disponível na lista...');
-        const anyResult = page
-          .locator('[class*="result"] button, [class*="search"] button, ul button, ol button')
-          .first();
-        await anyResult.click({ timeout: T.element });
-      }
+      console.log('  Clicando no primeiro resultado disponível...');
+      // Primeiro item real da lista (exclui o botão "Não encontrou a empresa?")
+      const firstResult = page.locator(
+        `#auto-complete-list-id li:not([id="action-button"]), ` +
+        `[role="option"]:not(:has-text("Não encontrou"))`
+      ).first();
+      await firstResult.click({ timeout: T.element });
     }
     bench.mark('3. Empresa selecionada');
 
