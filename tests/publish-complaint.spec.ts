@@ -40,14 +40,13 @@ const VERSION       = (process.env.RA_VERSION || 'v1')  as 'v1' | 'v2';
 const COMPANY       =  process.env.RA_COMPANY || 'Abdu Restaurante';
 const DEFAULT_PHONE =  process.env.RA_PHONE   || '83988089452';
 
-// Campos raValida — configuráveis por posição (cada empresa define suas próprias perguntas).
-// Valores padrão para quando o workflow não envia (ex.: Abdu Restaurante — nome, doc, data).
+// Campos raValida — configuráveis por posição. || garante que string vazia use o padrão.
 const RAFORMS_FIELDS: string[] = [
-  process.env.RA_FORMS_FIELD_1 ?? 'jhonatan',
-  process.env.RA_FORMS_FIELD_2 ?? '06049690154',
-  process.env.RA_FORMS_FIELD_3 ?? '07/01/2026',
-  process.env.RA_FORMS_FIELD_4 ?? '',
-  process.env.RA_FORMS_FIELD_5 ?? '',
+  (process.env.RA_FORMS_FIELD_1 || 'jhonatan').trim(),
+  (process.env.RA_FORMS_FIELD_2 || '06049690154').trim(),
+  (process.env.RA_FORMS_FIELD_3 || '07/01/2026').trim(),
+  (process.env.RA_FORMS_FIELD_4 ?? '').trim(),
+  (process.env.RA_FORMS_FIELD_5 ?? '').trim(),
 ];
 
 const COMPLAINT_TEXT =

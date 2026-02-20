@@ -48,13 +48,13 @@ const DEFAULT_COMPLAINT_TEXT =
 const DEFAULT_PHONE = "83988089452";
 const TOKENS_FILE = path.join(__dirname, ".ra-tokens.json");
 
-// Campos raValida — configuráveis por posição. Padrões para quando não enviados (ex.: Abdu Restaurante).
+// Campos raValida — || garante que string vazia do workflow use o padrão
 const RAFORMS_FIELDS = [
-  process.env.RA_FORMS_FIELD_1 ?? "jhonatan",
-  process.env.RA_FORMS_FIELD_2 ?? "06049690154",
-  process.env.RA_FORMS_FIELD_3 ?? "07/01/2026",
-  process.env.RA_FORMS_FIELD_4 ?? "",
-  process.env.RA_FORMS_FIELD_5 ?? "",
+  (process.env.RA_FORMS_FIELD_1 || "jhonatan").trim(),
+  (process.env.RA_FORMS_FIELD_2 || "06049690154").trim(),
+  (process.env.RA_FORMS_FIELD_3 || "07/01/2026").trim(),
+  (process.env.RA_FORMS_FIELD_4 ?? "").trim(),
+  (process.env.RA_FORMS_FIELD_5 ?? "").trim(),
 ];
 
 // ---------------------------------------------------------------------------
