@@ -239,13 +239,24 @@ async function fillReactInput(page: Page, selector: string, value: string) {
   );
 }
 
-/** Captura screenshot e anexa ao relatório Playwright com nome numerado */
+/** Captura screenshot e anexa ao relatório Playwright.
+ *  Aguarda a página estar estável (sem loading spinners, body visível)
+ *  antes de tirar a foto para evitar screenshots em branco.
+ */
 async function snap(
   label: string,
   page: Page,
   testInfo: import('@playwright/test').TestInfo,
 ) {
   try {
+    // Aguarda o body ter conteúdo visível e a rede estar quieta
+    await page.waitForLoadState('domcontentloaded', { timeout: 10_000 }).catch(() => {});
+    await page.waitForFunction(
+      () => document.body && document.body.innerText.trim().length > 0,
+      { timeout: 8_000 },
+    ).catch(() => {});
+    // Pequena pausa para animações/transições CSS terminarem
+    await page.waitForTimeout(300);
     const body = await page.screenshot({ fullPage: true });
     await testInfo.attach(label, { body, contentType: 'image/png' });
   } catch { /* falha silenciosa — não interrompe o fluxo */ }
