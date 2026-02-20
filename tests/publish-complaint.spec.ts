@@ -239,6 +239,50 @@ async function fillReactInput(page: Page, selector: string, value: string) {
   );
 }
 
+/** Entrada de log do console da página */
+interface ConsoleEntry {
+  type: string;
+  text: string;
+  ts: number;
+  url?: string;
+}
+
+/** Inicia a coleta de mensagens do console da página (incl. Cloudflare, erros JS) */
+function startConsoleCollector(page: Page): ConsoleEntry[] {
+  const entries: ConsoleEntry[] = [];
+  page.on('console', (msg) => {
+    const type = msg.type();
+    const text = msg.text();
+    entries.push({
+      type,
+      text,
+      ts: Date.now(),
+      url: msg.location().url,
+    });
+  });
+  return entries;
+}
+
+/** Anexa os logs do console ao relatório do teste */
+function attachConsoleLogs(
+  testInfo: import('@playwright/test').TestInfo,
+  entries: ConsoleEntry[],
+  label = 'console-logs',
+) {
+  if (entries.length === 0) return;
+  const body = entries
+    .map((e) => `[${e.type}] ${e.text}${e.url ? ` @ ${e.url}` : ''}`)
+    .join('\n');
+  testInfo.attach(label, { body, contentType: 'text/plain' });
+  const errors = entries.filter((e) => e.type === 'error');
+  if (errors.length > 0) {
+    testInfo.attach('console-errors-only', {
+      body: errors.map((e) => e.text).join('\n'),
+      contentType: 'text/plain',
+    });
+  }
+}
+
 /** Coleta diagnóstico da página (URL, título, inputs no DOM) para debug de timeout */
 async function collectPageDiagnostics(page: Page) {
   return page.evaluate(() => {
@@ -385,6 +429,9 @@ test(
     const tokens = loadTokens();
     const bench  = createBenchmark();
 
+    // Coleta mensagens do console (erros, warnings, Cloudflare, etc.)
+    const consoleEntries = startConsoleCollector(page);
+
     // Injeta tokens antes de qualquer navegação
     if (tokens.tk || tokens.rtk || tokens.itk) {
       await page.addInitScript(
@@ -485,6 +532,7 @@ test(
         body: Buffer.from(JSON.stringify(diag, null, 2)),
         contentType: 'application/json',
       });
+      attachConsoleLogs(testInfo, consoleEntries, 'diagnostico-etapa2-console');
       await snap('99-etapa2-falha-diagnostico', page, testInfo);
 
       throw new Error(
@@ -789,6 +837,7 @@ test(
         body: Buffer.from(JSON.stringify({ ...result, status: 'blocked_3_days' }, null, 2)),
         contentType: 'application/json',
       });
+      attachConsoleLogs(testInfo, consoleEntries, 'console-logs');
 
       // Encerra o teste como PASSED — o fluxo foi válido, o bloqueio é esperado
       return;
@@ -838,6 +887,7 @@ test(
         body: Buffer.from(JSON.stringify({ ...result, status: 'blocked_3_days' }, null, 2)),
         contentType: 'application/json',
       });
+      attachConsoleLogs(testInfo, consoleEntries, 'console-logs');
 
       return;
     }
@@ -852,5 +902,6 @@ test(
       body: Buffer.from(JSON.stringify({ ...result, status: 'published' }, null, 2)),
       contentType: 'application/json',
     });
+    attachConsoleLogs(testInfo, consoleEntries, 'console-logs');
   },
 );
