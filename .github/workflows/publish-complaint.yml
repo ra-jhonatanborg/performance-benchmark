@@ -33,6 +33,21 @@ on:
         required: false
         type: string
 
+      tk:
+        description: "Token tk (cola da extensão — deixe vazio para usar Secret salvo)"
+        required: false
+        type: string
+
+      rtk:
+        description: "Token rtk (cola da extensão — deixe vazio para usar Secret salvo)"
+        required: false
+        type: string
+
+      itk:
+        description: "Token itk (cola da extensão — deixe vazio para usar Secret salvo)"
+        required: false
+        type: string
+
 # Permissões necessárias para publicar no GitHub Pages
 permissions:
   contents: read
@@ -71,6 +86,21 @@ jobs:
       - name: Instalar Chromium
         run: yarn playwright install chromium --with-deps
 
+      # Mascara os tokens nos logs ANTES de qualquer uso (obrigatório por segurança)
+      - name: Mascarar tokens nos logs
+        run: |
+          TK="${{ inputs.tk }}"
+          RTK="${{ inputs.rtk }}"
+          ITK="${{ inputs.itk }}"
+          # Mascara tokens fornecidos via input
+          [ -n "$TK" ]  && echo "::add-mask::$TK"
+          [ -n "$RTK" ] && echo "::add-mask::$RTK"
+          [ -n "$ITK" ] && echo "::add-mask::$ITK"
+          # Mascara tokens dos Secrets (se configurados)
+          [ -n "${{ secrets.RA_TK }}" ]  && echo "::add-mask::${{ secrets.RA_TK }}"
+          [ -n "${{ secrets.RA_RTK }}" ] && echo "::add-mask::${{ secrets.RA_RTK }}"
+          [ -n "${{ secrets.RA_ITK }}" ] && echo "::add-mask::${{ secrets.RA_ITK }}"
+
       - name: Publicar reclamação
         continue-on-error: true
         env:
@@ -78,9 +108,10 @@ jobs:
           RA_VERSION: ${{ inputs.version }}
           RA_COMPANY: ${{ inputs.company }}
           RA_TEXT: ${{ inputs.complaint_text }}
-          RA_TK: ${{ secrets.RA_TK }}
-          RA_RTK: ${{ secrets.RA_RTK }}
-          RA_ITK: ${{ secrets.RA_ITK }}
+          # Input tem prioridade sobre Secret — fallback automático se input estiver vazio
+          RA_TK:  ${{ inputs.tk  || secrets.RA_TK  }}
+          RA_RTK: ${{ inputs.rtk || secrets.RA_RTK }}
+          RA_ITK: ${{ inputs.itk || secrets.RA_ITK }}
           CI: "true"
         run: yarn playwright test publish-complaint --project=publish-complaint
 
