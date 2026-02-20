@@ -48,6 +48,16 @@ const DEFAULT_COMPLAINT_TEXT =
 const DEFAULT_PHONE = "83988089452";
 const TOKENS_FILE = path.join(__dirname, ".ra-tokens.json");
 
+// Campos raValida — configuráveis por posição (cada empresa define suas próprias perguntas)
+// RA_FORMS_FIELD_1..5 são opcionais. Se não definidos, o campo é ignorado.
+const RAFORMS_FIELDS = [
+  process.env.RA_FORMS_FIELD_1 ?? "",
+  process.env.RA_FORMS_FIELD_2 ?? "",
+  process.env.RA_FORMS_FIELD_3 ?? "",
+  process.env.RA_FORMS_FIELD_4 ?? "",
+  process.env.RA_FORMS_FIELD_5 ?? "",
+];
+
 // ---------------------------------------------------------------------------
 // Persistência de tokens
 // ---------------------------------------------------------------------------
@@ -396,6 +406,44 @@ async function selectDropdownOption(page, dropdownSelector) {
   }
 }
 
+/**
+ * Preenche campos raValida (formulário privado personalizado pela empresa).
+ * Os campos são preenchidos por posição usando RA_FORMS_FIELD_1..N.
+ * Campos com máscara (placeholder "__") usam keyboard.type.
+ * Se não houver valor para uma posição, o campo é ignorado.
+ */
+async function fillRaValidaFields(page, fieldValues) {
+  const inputs = page.locator('input[name^="raValida"]');
+  const count  = await inputs.count().catch(() => 0);
+  console.log(`  ra-forms raValida: ${count} campo(s) encontrado(s)`);
+
+  for (let i = 0; i < count; i++) {
+    const value = fieldValues[i] ?? "";
+    if (!value) {
+      console.log(`  raValida[${i}] sem valor configurado — ignorando`);
+      continue;
+    }
+
+    const inp = inputs.nth(i);
+    if (!(await inp.isVisible().catch(() => false))) continue;
+
+    const placeholder = (await inp.getAttribute("placeholder").catch(() => "")) ?? "";
+    const isMasked    = placeholder.includes("__");
+
+    await inp.click();
+    await page.keyboard.press("Control+a");
+
+    if (isMasked) {
+      await page.keyboard.type(value.replace(/\D/g, ""), { delay: 60 });
+    } else {
+      await inp.fill(value);
+    }
+
+    console.log(`  raValida[${i}] preenchido${isMasked ? " (mascarado)" : ""}`);
+    await page.waitForTimeout(200);
+  }
+}
+
 /** Preenche campos extras do passo 1 do ra-forms (após selecionar Sim) */
 async function fillStep1ExtraFields(page) {
   // Preenche qualquer dropdown visível
@@ -607,35 +655,51 @@ async function runComplaintFlow(inputs) {
     // Detecta qual tela apareceu após navegar para minha-historia
     const TEXTAREA_SEL =
       'textarea[name="myHistory.description"], textarea[placeholder*="reclamação"], textarea[placeholder*="compra"], textarea';
-    const RADIO_SEL =
-      'input[type="radio"], label:has-text("Sim"), [class*="radio"]:has-text("Sim")';
+    const RADIO_SEL     = 'input[type="radio"], label:has-text("Sim"), [class*="radio"]:has-text("Sim")';
+    const RAVALIDA_SEL  = 'input[name^="raValida"], #btn-continue-ravalida';
 
     const screenType = await Promise.race([
+      // Tipo A: campos raValida (nome/documento/data) — ex.: Abdu Restaurante
+      page
+        .waitForSelector(RAVALIDA_SEL, { state: "visible", timeout: 15000 })
+        .then(() => "ravalida")
+        .catch(() => null),
+      // Tipo B: radio Sim/Não
       page
         .waitForSelector(RADIO_SEL, { state: "visible", timeout: 15000 })
         .then(() => "ra-forms")
         .catch(() => null),
+      // Tipo C: textarea direto
       page
         .waitForSelector(TEXTAREA_SEL, { state: "visible", timeout: 15000 })
         .then(() => "textarea")
         .catch(() => null),
     ]);
 
-    if (screenType === "ra-forms") {
+    if (screenType === "ravalida") {
+      console.log("  [5/7] ra-forms raValida detectado — preenchendo campos privados...");
+      await fillRaValidaFields(page, RAFORMS_FIELDS);
+
+      const nextBtn = page
+        .locator('#btn-continue-ravalida, button:has-text("Proximo passo"), button:has-text("Próximo passo")')
+        .first();
+      await nextBtn.waitFor({ state: "visible", timeout: 15000 });
+      await nextBtn.click();
+      console.log("  [5/7] Campos raValida preenchidos → avançando...");
+
+      await page.waitForSelector(TEXTAREA_SEL, { state: "visible", timeout: 25000 });
+      console.log("  [5/7] Textarea visível após raValida.");
+
+    } else if (screenType === "ra-forms") {
       console.log("  [5/7] ra-forms Passo 1 detectado — preenchendo...");
 
-      // Clica em "Sim"
       const simRadio = page
-        .locator(
-          'input[type="radio"][value="true"], label:has-text("Sim") input',
-        )
+        .locator('input[type="radio"][value="true"], label:has-text("Sim") input')
         .first();
       const simLabel = page
         .locator('label:has-text("Sim"), [class*="radio"]:has-text("Sim")')
         .first();
-      const simVisible = await simRadio
-        .isVisible({ timeout: 5000 })
-        .catch(() => false);
+      const simVisible = await simRadio.isVisible({ timeout: 5000 }).catch(() => false);
       if (simVisible) {
         await simRadio.click();
       } else {
@@ -643,30 +707,21 @@ async function runComplaintFlow(inputs) {
       }
       await page.waitForTimeout(600);
 
-      // Preenche campos extras (dropdowns, inputs)
       await fillStep1ExtraFields(page);
 
-      // Continuar → avança para Passo 2 (textarea)
       const continuar1 = page.locator('button:has-text("Continuar")').first();
       await continuar1.waitFor({ state: "visible", timeout: 15000 });
       await continuar1.click();
 
-      // Aguarda textarea aparecer após avançar
-      await page.waitForSelector(TEXTAREA_SEL, {
-        state: "visible",
-        timeout: 25000,
-      });
+      await page.waitForSelector(TEXTAREA_SEL, { state: "visible", timeout: 25000 });
       console.log("  [5/7] Avançou para Passo 2 (textarea).");
+
     } else if (screenType === "textarea") {
-      console.log(
-        "  [5/7] ra-forms não presente — textarea já visível, pulando Passo 1.",
-      );
+      console.log("  [5/7] ra-forms não presente — textarea já visível.");
     } else {
-      console.log(
-        "  [5/7] Tela desconhecida — tentando continuar mesmo assim...",
-      );
+      console.log("  [5/7] Tela desconhecida — tentando continuar mesmo assim...");
     }
-    bench.mark(`5. ra-forms ${screenType === "ra-forms" ? "preenchido" : "ausente"} → textarea visível`);
+    bench.mark(`5. ra-forms (${screenType ?? "ausente"}) → textarea visível`);
 
     // -----------------------------------------------------------------------
     // Etapa 6: preencher texto da reclamação (textarea)

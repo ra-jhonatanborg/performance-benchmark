@@ -25,11 +25,26 @@ on:
       company:
         description: "Nome da empresa"
         required: true
-        default: "Comercial Praia"
+        default: "Abdu Restaurante"
         type: string
 
       complaint_text:
         description: "Texto da reclamação (vazio = usar padrão)"
+        required: false
+        type: string
+
+      raforms_field_1:
+        description: "ra-forms campo 1 (varia por empresa — deixe vazio se não souber)"
+        required: false
+        type: string
+
+      raforms_field_2:
+        description: "ra-forms campo 2"
+        required: false
+        type: string
+
+      raforms_field_3:
+        description: "ra-forms campo 3"
         required: false
         type: string
 
@@ -104,10 +119,13 @@ jobs:
       - name: Publicar reclamação
         continue-on-error: true
         env:
-          RA_ENV: ${{ inputs.environment }}
-          RA_VERSION: ${{ inputs.version }}
-          RA_COMPANY: ${{ inputs.company }}
-          RA_TEXT: ${{ inputs.complaint_text }}
+          RA_ENV:        ${{ inputs.environment }}
+          RA_VERSION:    ${{ inputs.version }}
+          RA_COMPANY:    ${{ inputs.company }}
+          RA_TEXT:       ${{ inputs.complaint_text }}
+          RA_FORMS_FIELD_1: ${{ inputs.raforms_field_1 }}
+          RA_FORMS_FIELD_2: ${{ inputs.raforms_field_2 }}
+          RA_FORMS_FIELD_3: ${{ inputs.raforms_field_3 }}
           # Input tem prioridade sobre Secret — fallback automático se input estiver vazio
           RA_TK:  ${{ inputs.tk  || secrets.RA_TK  }}
           RA_RTK: ${{ inputs.rtk || secrets.RA_RTK }}

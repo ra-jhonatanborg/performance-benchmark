@@ -37,8 +37,19 @@ type EnvKey = keyof typeof ENVIRONMENTS;
 
 const ENV_KEY       = (process.env.RA_ENV     || 'tst') as EnvKey;
 const VERSION       = (process.env.RA_VERSION || 'v1')  as 'v1' | 'v2';
-const COMPANY       =  process.env.RA_COMPANY || 'Comercial Praia';
+const COMPANY       =  process.env.RA_COMPANY || 'Abdu Restaurante';
 const DEFAULT_PHONE =  process.env.RA_PHONE   || '83988089452';
+
+// Campos raValida — configuráveis por posição (cada empresa define suas próprias perguntas)
+// RA_FORMS_FIELD_1, RA_FORMS_FIELD_2, RA_FORMS_FIELD_3 ... são opcionais.
+// Se não definidos, o campo é ignorado (deixado em branco).
+const RAFORMS_FIELDS: string[] = [
+  process.env.RA_FORMS_FIELD_1 ?? '',
+  process.env.RA_FORMS_FIELD_2 ?? '',
+  process.env.RA_FORMS_FIELD_3 ?? '',
+  process.env.RA_FORMS_FIELD_4 ?? '',
+  process.env.RA_FORMS_FIELD_5 ?? '',
+].filter((_, i) => i < 5); // garante no máximo 5 campos
 
 const COMPLAINT_TEXT =
   process.env.RA_TEXT ||
@@ -166,6 +177,9 @@ const RADIO_SEL = [
   '[class*="radio"]:has-text("Sim")',
 ].join(', ');
 
+// ra-forms tipo raValida: campos de texto privados (nome, documento, data...)
+const RAVALIDA_SEL = 'input[name^="raValida"], #btn-continue-ravalida';
+
 const PHONE_SEL = [
   'input[type="tel"]',
   'input[name*="phone"]',
@@ -267,6 +281,45 @@ async function fillStep1ExtraFields(page: Page) {
     if (!(await inp.isEnabled().catch(() => false))) continue;
     if (await inp.inputValue().catch(() => '')) continue;
     await inp.fill('12345678').catch(() => {});
+  }
+}
+
+/**
+ * Preenche campos raValida (formulário privado personalizado pela empresa).
+ * Os campos são preenchidos por posição usando RA_FORMS_FIELD_1..N.
+ * Campos com máscara de data (placeholder "__/__") usam keyboard.type.
+ * Se não houver valor configurado para uma posição, o campo é ignorado.
+ */
+async function fillRaValidaFields(page: Page, fieldValues: string[]) {
+  const inputs = page.locator('input[name^="raValida"]');
+  const count  = await inputs.count().catch(() => 0);
+  console.log(`  ra-forms raValida: ${count} campo(s) encontrado(s)`);
+
+  for (let i = 0; i < count; i++) {
+    const value = fieldValues[i] ?? '';
+    if (!value) {
+      console.log(`  raValida[${i}] sem valor configurado — ignorando`);
+      continue;
+    }
+
+    const inp = inputs.nth(i);
+    if (!(await inp.isVisible().catch(() => false))) continue;
+
+    const placeholder = (await inp.getAttribute('placeholder').catch(() => '')) ?? '';
+    const isMasked    = placeholder.includes('__') || placeholder.includes('____');
+
+    await inp.click();
+    await page.keyboard.press('Control+a');
+
+    if (isMasked) {
+      // Campo com máscara (ex.: data __/__/____): digita só os dígitos
+      await page.keyboard.type(value.replace(/\D/g, ''), { delay: 60 });
+    } else {
+      await inp.fill(value);
+    }
+
+    console.log(`  raValida[${i}] preenchido${isMasked ? ' (mascarado)' : ''}`);
+    await page.waitForTimeout(200);
   }
 }
 
@@ -435,17 +488,36 @@ test(
     }
 
     const screenType = await Promise.race([
+      // Tipo A: campos raValida (nome/documento/data) — ex.: Abdu Restaurante
+      page
+        .waitForSelector(RAVALIDA_SEL, { state: 'visible', timeout: T.formDetect })
+        .then(() => 'ravalida')
+        .catch(() => null),
+      // Tipo B: radio Sim/Não — ra-forms com perguntas
       page
         .waitForSelector(RADIO_SEL,    { state: 'visible', timeout: T.formDetect })
         .then(() => 'ra-forms')
         .catch(() => null),
+      // Tipo C: textarea direto — sem ra-forms
       page
         .waitForSelector(TEXTAREA_SEL, { state: 'visible', timeout: T.formDetect })
         .then(() => 'textarea')
         .catch(() => null),
     ]);
 
-    if (screenType === 'ra-forms') {
+    if (screenType === 'ravalida') {
+      console.log('  [5/7] ra-forms raValida detectado — preenchendo campos privados...');
+      await fillRaValidaFields(page, RAFORMS_FIELDS);
+
+      const nextBtn = page.locator('#btn-continue-ravalida, button:has-text("Proximo passo"), button:has-text("Próximo passo")').first();
+      await nextBtn.waitFor({ state: 'visible', timeout: T.formField });
+      await nextBtn.click();
+      console.log('  [5/7] Campos raValida preenchidos → avançando...');
+
+      await page.waitForSelector(TEXTAREA_SEL, { state: 'visible', timeout: T.textarea });
+      console.log('  [5/7] Textarea visível após raValida.');
+
+    } else if (screenType === 'ra-forms') {
       console.log('  [5/7] ra-forms Passo 1 detectado — preenchendo...');
 
       const simRadio = page
@@ -470,13 +542,14 @@ test(
 
       await page.waitForSelector(TEXTAREA_SEL, { state: 'visible', timeout: T.textarea });
       console.log('  [5/7] Avançou para Passo 2 (textarea).');
+
     } else if (screenType === 'textarea') {
       console.log('  [5/7] ra-forms não presente — textarea já visível.');
     } else {
       console.log('  [5/7] Tela desconhecida — continuando...');
     }
     bench.mark(
-      `5. ra-forms ${screenType === 'ra-forms' ? 'preenchido' : 'ausente'} → textarea visível`,
+      `5. ra-forms (${screenType ?? 'ausente'}) → textarea visível`,
     );
 
     // ───────────────────────────────────────────────────────────────────────
