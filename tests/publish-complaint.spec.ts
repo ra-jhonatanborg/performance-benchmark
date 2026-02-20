@@ -327,15 +327,17 @@ test(
     // ───────────────────────────────────────────────────────────────────────
     console.log(`  [2/7] Buscando empresa: "${COMPANY}"`);
 
-    // Seletores em ordem de especificidade — placeholder primeiro para evitar inputs ocultos
+    // Seletores em ordem de especificidade
+    // V1 usa id="search" | V2 usa placeholder genérico
     const SEARCH_INPUT_SEL = [
+      'input#search',
       'input[placeholder*="mpresa"]',
+      'input[placeholder*="elecione"]',
       'input[placeholder*="eclamar"]',
       'input[placeholder*="earch"]',
       'input[aria-label*="mpresa"]',
       'input[aria-label*="usca"]',
       'input[type="search"]',
-      'input[type="text"]',
     ].join(', ');
 
     const searchInput = page.locator(SEARCH_INPUT_SEL).first();

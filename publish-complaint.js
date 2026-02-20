@@ -508,8 +508,12 @@ async function runComplaintFlow(inputs) {
     // Etapa 2: Buscar empresa
     // -----------------------------------------------------------------------
     console.log(`  [2/7] Buscando empresa: "${company}"`);
+    // V1 usa id="search" | V2 usa placeholder genérico
     const searchInput = page
-      .locator('input[type="text"], input[type="search"], input:not([type])')
+      .locator(
+        'input#search, input[placeholder*="mpresa"], input[placeholder*="elecione"], ' +
+        'input[placeholder*="eclamar"], input[type="search"], input[type="text"]'
+      )
       .first();
     await searchInput.waitFor({ state: "visible", timeout: 20000 });
     await searchInput.fill(company);
