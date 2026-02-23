@@ -409,7 +409,7 @@ async function selectDropdownOption(page, dropdownSelector) {
  * Preenche campos raValida (formulário privado personalizado pela empresa).
  * Os campos são preenchidos por posição usando RA_FORMS_FIELD_1..N.
  * Campos com máscara (placeholder "__") usam keyboard.type.
- * Se não houver valor para uma posição, o campo é ignorado.
+ * Campo documento (índice 1): sempre digitação com delay em produção (máscara/validação).
  */
 async function fillRaValidaFields(page, fieldValues) {
   const inputs = page.locator('input[name^="raValida"]');
@@ -428,12 +428,15 @@ async function fillRaValidaFields(page, fieldValues) {
 
     const placeholder = (await inp.getAttribute("placeholder").catch(() => "")) ?? "";
     const isMasked    = placeholder.includes("__");
+    const isDocument  = i === 1 || /documento|document|cpf|preencha o campo/i.test(placeholder);
+    const digitsOnly  = value.replace(/\D/g, "");
 
     await inp.click();
+    await page.waitForTimeout(100);
     await page.keyboard.press("Control+a");
 
-    if (isMasked) {
-      await page.keyboard.type(value.replace(/\D/g, ""), { delay: 60 });
+    if (isMasked || isDocument) {
+      await page.keyboard.type(digitsOnly || value.replace(/\D/g, ""), { delay: isDocument ? 80 : 60 });
     } else {
       await inp.evaluate((el, val) => {
         const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
@@ -447,8 +450,27 @@ async function fillRaValidaFields(page, fieldValues) {
       }, value);
     }
 
-    console.log(`  raValida[${i}] preenchido${isMasked ? " (mascarado)" : ""}`);
+    console.log(`  raValida[${i}] preenchido${isMasked ? " (mascarado)" : isDocument ? " (documento)" : ""}`);
     await page.waitForTimeout(300);
+  }
+
+  const docValue = fieldValues[1] ?? "";
+  if (docValue) {
+    const byLabel      = page.getByLabel(/qual o seu documento|documento/i).first();
+    const byPlaceholder = page.getByPlaceholder(/preencha o campo|documento/i).first();
+    for (const loc of [byLabel, byPlaceholder]) {
+      const visible = await loc.isVisible().catch(() => false);
+      if (!visible) continue;
+      const current = await loc.inputValue().catch(() => "");
+      if (/^\d+$/.test(current) && current.length >= 10) continue;
+      await loc.click();
+      await page.waitForTimeout(100);
+      await page.keyboard.press("Control+a");
+      await page.keyboard.type(docValue.replace(/\D/g, ""), { delay: 80 });
+      console.log("  raValida documento preenchido (fallback por label/placeholder)");
+      await page.waitForTimeout(300);
+      break;
+    }
   }
   await page.waitForTimeout(500);
 }

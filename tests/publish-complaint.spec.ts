@@ -391,7 +391,7 @@ async function fillStep1ExtraFields(page: Page) {
  * Preenche campos raValida (formulário privado personalizado pela empresa).
  * Os campos são preenchidos por posição usando RA_FORMS_FIELD_1..N.
  * Campos com máscara de data (placeholder "__/__") usam keyboard.type.
- * Se não houver valor configurado para uma posição, o campo é ignorado.
+ * Campo documento (índice 1): sempre digitação com delay em produção (máscara/validação).
  */
 async function fillRaValidaFields(page: Page, fieldValues: string[]) {
   const inputs = page.locator('input[name^="raValida"]');
@@ -410,15 +410,18 @@ async function fillRaValidaFields(page: Page, fieldValues: string[]) {
 
     const placeholder = (await inp.getAttribute('placeholder').catch(() => '')) ?? '';
     const isMasked    = placeholder.includes('__') || placeholder.includes('____');
+    const isDocument  = i === 1 || /documento|document|cpf|preencha o campo/i.test(placeholder);
+    const digitsOnly  = value.replace(/\D/g, '');
 
     await inp.click();
+    await page.waitForTimeout(100);
     await page.keyboard.press('Control+a');
 
-    if (isMasked) {
-      // Campo com máscara (ex.: data __/__/____): digita só os dígitos
-      await page.keyboard.type(value.replace(/\D/g, ''), { delay: 60 });
+    if (isMasked || isDocument) {
+      // Máscara (data) ou documento: digitação real para disparar validação/máscara (ex.: PROD)
+      await page.keyboard.type(digitsOnly || value.replace(/\D/g, ''), { delay: isDocument ? 80 : 60 });
     } else {
-      // React: setter nativo + input/change para o estado do form atualizar (evita "Este campo é obrigatório")
+      // React: setter nativo + input/change
       await inp.evaluate((el: HTMLInputElement, val: string) => {
         const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
         if (setter) {
@@ -431,11 +434,30 @@ async function fillRaValidaFields(page: Page, fieldValues: string[]) {
       }, value);
     }
 
-    console.log(`  raValida[${i}] preenchido${isMasked ? ' (mascarado)' : ''}`);
+    console.log(`  raValida[${i}] preenchido${isMasked ? ' (mascarado)' : isDocument ? ' (documento)' : ''}`);
     await page.waitForTimeout(300);
   }
 
-  // Pausa para validação do form atualizar antes de clicar em "Próximo passo"
+  // Fallback: campo documento por label/placeholder (PROD: "Preencha o campo", "Qual o seu documento?")
+  const docValue = fieldValues[1] ?? '';
+  if (docValue) {
+    const byLabel      = page.getByLabel(/qual o seu documento|documento/i).first();
+    const byPlaceholder = page.getByPlaceholder(/preencha o campo|documento/i).first();
+    for (const loc of [byLabel, byPlaceholder]) {
+      const visible = await loc.isVisible().catch(() => false);
+      if (!visible) continue;
+      const current = await loc.inputValue().catch(() => '');
+      if (/^\d+$/.test(current) && current.length >= 10) continue;
+      await loc.click();
+      await page.waitForTimeout(100);
+      await page.keyboard.press('Control+a');
+      await page.keyboard.type(docValue.replace(/\D/g, ''), { delay: 80 });
+      console.log('  raValida documento preenchido (fallback por label/placeholder)');
+      await page.waitForTimeout(300);
+      break;
+    }
+  }
+
   await page.waitForTimeout(500);
 }
 
@@ -448,6 +470,12 @@ const env = ENVIRONMENTS[ENV_KEY] ?? ENVIRONMENTS.tst;
 test(
   `Publicação de reclamação — ${COMPANY} (${env.label} / ${VERSION.toUpperCase()})`,
   async ({ page }, testInfo) => {
+    // Em CI com TST/EVO: só executa se o workflow conectou o WARP (secrets configurados por um admin)
+    test.skip(
+      IS_CI && (ENV_KEY === 'tst' || ENV_KEY === 'evo') && process.env.RA_VPN_READY !== 'true',
+      'TST/EVO exigem VPN. Peça a um admin do Zero Trust para configurar os secrets do Cloudflare WARP no repositório (README) ou use ambiente prod.',
+    );
+
     const tokens = loadTokens();
     const bench  = createBenchmark();
 

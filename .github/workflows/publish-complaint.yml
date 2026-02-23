@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: "Ambiente"
+        description: "Ambiente (TST/EVO exigem VPN — em CI use prod)"
         required: true
-        default: "tst"
+        default: "prod"
         type: choice
         options:
           - tst
@@ -80,7 +80,7 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────────
   run-test:
     name: "${{ inputs.environment }} / ${{ inputs.version }} — ${{ inputs.company }}"
-    runs-on: ubuntu-latest
+    runs-on: prd-runner-github-scale-obvio-it
     timeout-minutes: 15
 
     steps:
@@ -125,6 +125,19 @@ jobs:
           [ -n "${{ secrets.RA_TK }}" ]  && echo "::add-mask::${{ secrets.RA_TK }}"
           [ -n "${{ secrets.RA_RTK }}" ] && echo "::add-mask::${{ secrets.RA_RTK }}"
           [ -n "${{ secrets.RA_ITK }}" ] && echo "::add-mask::${{ secrets.RA_ITK }}"
+          # WARP (TST/EVO)
+          [ -n "${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}" ] && echo "::add-mask::${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}"
+          [ -n "${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}" ] && echo "::add-mask::${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}"
+
+      # TST/EVO: conecta Cloudflare WARP quando os secrets estão configurados (admin Zero Trust)
+      # Sem secrets, o step é pulado e o teste TST/EVO será skipped com mensagem clara
+      - name: Conectar Cloudflare WARP
+        if: (inputs.environment == 'tst' || inputs.environment == 'evo') && secrets.CLOUDFLARE_AUTH_CLIENT_ID != ''
+        uses: Boostport/setup-cloudflare-warp@v1
+        with:
+          organization: ${{ secrets.CLOUDFLARE_WARP_ORGANIZATION }}
+          auth_client_id: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_ID }}
+          auth_client_secret: ${{ secrets.CLOUDFLARE_AUTH_CLIENT_SECRET }}
 
       - name: Publicar reclamação
         continue-on-error: true
@@ -136,6 +149,8 @@ jobs:
           RA_FORMS_FIELD_1: ${{ inputs.raforms_field_1 }}
           RA_FORMS_FIELD_2: ${{ inputs.raforms_field_2 }}
           RA_FORMS_FIELD_3: ${{ inputs.raforms_field_3 }}
+          # TST/EVO em CI: só roda o teste se WARP foi conectado (secrets configurados)
+          RA_VPN_READY:  ${{ (inputs.environment == 'tst' || inputs.environment == 'evo') && secrets.CLOUDFLARE_AUTH_CLIENT_ID != '' && 'true' || 'false' }}
           # Input tem prioridade sobre Secret — fallback automático se input estiver vazio
           RA_TK:  ${{ inputs.tk  || secrets.RA_TK  }}
           RA_RTK: ${{ inputs.rtk || secrets.RA_RTK }}
