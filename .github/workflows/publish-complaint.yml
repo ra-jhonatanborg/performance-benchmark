@@ -1,4 +1,4 @@
-name: Publicar Reclamação — Reclame AQUI
+name: "Publicar Reclamação — Reclame AQUI"
 
 on:
   workflow_dispatch:
