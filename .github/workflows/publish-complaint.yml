@@ -80,7 +80,8 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────────────
   run-test:
     name: "${{ inputs.environment }} / ${{ inputs.version }} — ${{ inputs.company }}"
-    runs-on: prd-runner-github-scale-obvio-it
+    # PROD: runner GitHub (público). TST/EVO: runner com VPN (prd-runner-github-scale-obvio-it)
+    runs-on: ${{ inputs.environment == 'prod' && 'ubuntu-latest' || 'prd-runner-github-scale-obvio-it' }}
     timeout-minutes: 15
 
     steps:
